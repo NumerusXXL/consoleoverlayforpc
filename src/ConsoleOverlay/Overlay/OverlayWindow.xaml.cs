@@ -47,6 +47,9 @@ public partial class OverlayWindow : Window
     private readonly DispatcherTimer _clock;
     private Page _tabsPage = null!;
     private Page _settingsPage = null!;
+    private Page _soundPage = null!;
+    private SoundPage _sound = null!;
+    private bool _soundActive;
     private int _selected;
     private IntPtr _currentWindow;
 
@@ -73,6 +76,7 @@ public partial class OverlayWindow : Window
             _clock.Stop();
             Snapshot.Source = null;
             _tabsPage.Content.Children.Clear();
+            DeactivateSound();
         };
     }
 
@@ -85,8 +89,8 @@ public partial class OverlayWindow : Window
         _tabsPage = AddPage("All Tabs", "", "A switch to window · B back to game · LB / RB other pages",
             new WrapPanel());
 
-        AddPage("Sound", "", "B back to game · LB / RB other pages",
-            Stack(Placeholder("Volume and devices", "Master volume, a mixer for every app and output switching arrive in step 2.")));
+        _sound = new SoundPage(this);
+        _soundPage = AddPage("Sound", "", SoundPage.Hint, _sound.Content);
 
         AddPage("Discord", "", "B back to game · LB / RB other pages",
             Stack(Placeholder("Voice controls", "Your voice channel, who's talking, and mute, deafen and leave arrive in step 3.")));
@@ -157,6 +161,19 @@ public partial class OverlayWindow : Window
         }
 
         var current = _pages[_selected];
+        if (current == _soundPage)
+        {
+            if (!_soundActive)
+            {
+                _soundActive = true;
+                _sound.Activate(_currentWindow);
+            }
+        }
+        else
+        {
+            DeactivateSound();
+        }
+
         PageTitleText.Text = current.Name;
         PageHint.Text = current.Hint;
         PageScroller.ScrollToTop();
@@ -175,6 +192,13 @@ public partial class OverlayWindow : Window
 
         if (focusFirst)
             FocusFirst();
+    }
+
+    private void DeactivateSound()
+    {
+        if (!_soundActive) return;
+        _soundActive = false;
+        _sound.Deactivate();
     }
 
     /// <summary>The current page's dock icon widens into a light pill and its name slides in.</summary>
@@ -199,6 +223,15 @@ public partial class OverlayWindow : Window
 
     private void FocusFirst()
     {
+        if (_pages[_selected] == _soundPage)
+        {
+            var first = _sound.FirstFocus();
+            if (first is null) return;
+            first.Focus();
+            Keyboard.Focus(first);
+            return;
+        }
+
         var buttons = _pages[_selected].Content.Children.OfType<Button>().ToList();
         // On All Tabs, start on the first window that isn't the one you came from, like Alt+Tab.
         var target = buttons.FirstOrDefault(b => b.Tag is IntPtr h && h != _currentWindow) ?? buttons.FirstOrDefault();
@@ -328,6 +361,9 @@ public partial class OverlayWindow : Window
     /// <summary>Handles a controller command while the overlay is open.</summary>
     public void Navigate(NavCommand command)
     {
+        if (_pages[_selected] == _soundPage && _sound.Handle(command, Keyboard.FocusedElement))
+            return;
+
         switch (command)
         {
             case NavCommand.Back:
@@ -344,6 +380,8 @@ public partial class OverlayWindow : Window
                     && new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke) is IInvokeProvider invoker)
                     invoker.Invoke();
                 return;
+            case NavCommand.Mute or NavCommand.ColumnLeft or NavCommand.ColumnRight:
+                return; // only the Sound page uses these
         }
 
         if (Keyboard.FocusedElement is not UIElement focused || !IsInCurrentPage(focused))
@@ -373,6 +411,12 @@ public partial class OverlayWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (_pages[_selected] == _soundPage && _sound.HandleKey(e.Key, Keyboard.FocusedElement))
+        {
+            e.Handled = true;
+            return;
+        }
+
         switch (e.Key)
         {
             case Key.Escape:
