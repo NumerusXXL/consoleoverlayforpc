@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -16,7 +18,7 @@ namespace ConsoleOverlay.Overlay;
 
 public partial class OverlayWindow : Window
 {
-    private sealed record Tab(string Name, TextBlock Header, StackPanel Content);
+    private sealed record Tab(string Name, string Icon, TextBlock Header, StackPanel Content);
 
     private readonly List<Tab> _tabs = [];
     private int _selected;
@@ -41,28 +43,28 @@ public partial class OverlayWindow : Window
 
     private void BuildTabs()
     {
-        AddTab("Home",
+        AddTab("Home", "\uE80F",
             Card("Resume", "Close the overlay and go back to what you were doing.", () => CloseRequested?.Invoke()));
 
-        AddTab("Sound",
+        AddTab("Sound", "\uE767",
             Card("Volume and devices", "Master volume, per-app volume and output switching arrive in step 2.", null));
 
-        AddTab("Discord",
+        AddTab("Discord", "\uE8BD",
             Card("Voice controls", "Mute, deafen and who's talking arrive in step 3.", null));
 
-        AddTab("All Tabs",
+        AddTab("All Tabs", "\uE7C4",
             Card("Open windows", "Jump between your open apps and games. Arrives in step 3.", null));
 
-        AddTab("Settings",
+        AddTab("Settings", "\uE713",
             Card("Edit settings file", "Change the shortcut, controller button combo and fullscreen behavior.", () => EditSettingsRequested?.Invoke()),
             Card("Reload settings", "Apply changes from the settings file without restarting.", () => ReloadSettingsRequested?.Invoke()),
             Card("Quit Console Overlay", "Stop the overlay app. Start it again from the Start menu or the exe.", () => ExitRequested?.Invoke()));
     }
 
-    private void AddTab(string name, params Button[] cards)
+    private void AddTab(string name, string icon, params Button[] cards)
     {
         var index = _tabs.Count;
-        var header = new TextBlock { Text = name, Style = (Style)FindResource("TabHeader") };
+        var header = new TextBlock { Style = (Style)FindResource("TabHeader"), ToolTip = name };
         header.MouseLeftButtonDown += (_, _) => SelectTab(index, focusFirst: true);
         TabStrip.Children.Add(header);
 
@@ -72,7 +74,7 @@ public partial class OverlayWindow : Window
             content.Children.Add(card);
         TabContent.Children.Add(content);
 
-        _tabs.Add(new Tab(name, header, content));
+        _tabs.Add(new Tab(name, icon, header, content));
     }
 
     private Button Card(string title, string subtitle, Action? onClick)
@@ -98,6 +100,7 @@ public partial class OverlayWindow : Window
         {
             bool selected = i == _selected;
             _tabs[i].Header.Tag = selected ? "Selected" : null;
+            SetHeaderText(_tabs[i], selected);
             _tabs[i].Content.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -109,12 +112,27 @@ public partial class OverlayWindow : Window
             FocusFirstCard();
     }
 
+    /// <summary>Tabs show only their icon, plus the name when selected, so five tabs fit comfortably.</summary>
+    private void SetHeaderText(Tab tab, bool selected)
+    {
+        tab.Header.Inlines.Clear();
+        tab.Header.Inlines.Add(new Run(tab.Icon)
+        {
+            FontFamily = (FontFamily)FindResource("IconFont"),
+            FontSize = 17,
+            BaselineAlignment = BaselineAlignment.Center,
+        });
+        if (selected)
+            tab.Header.Inlines.Add(new Run("  " + tab.Name) { BaselineAlignment = BaselineAlignment.Center });
+    }
+
     private void MoveUnderline(FrameworkElement header)
     {
         var x = header.TranslatePoint(new Point(0, 0), TabStrip).X;
         var duration = new Duration(TimeSpan.FromMilliseconds(160));
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         UnderlineOffset.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(x, duration) { EasingFunction = ease });
+        // Width needs a real starting value (set to 0 in XAML); an unset Width is NaN and cannot be animated.
         TabUnderline.BeginAnimation(WidthProperty, new DoubleAnimation(header.ActualWidth, duration) { EasingFunction = ease });
     }
 
@@ -203,7 +221,7 @@ public partial class OverlayWindow : Window
         Backdrop.Fill = (Brush)FindResource(exclusiveMode ? "BackdropOpaqueBrush" : "BackdropBrush");
         ModeText.Text = exclusiveMode
             ? "Game minimized (exclusive fullscreen). It comes back when you close the overlay."
-            : DateTime.Now.ToString("dddd, d MMMM");
+            : Capitalize(DateTime.Now.ToString("dddd, d MMMM"));
 
         if (!IsVisible)
             Show();
@@ -213,6 +231,9 @@ public partial class OverlayWindow : Window
         SelectTab(_selected, focusFirst: true);
         AnimateIn();
     }
+
+    private static string Capitalize(string text) =>
+        text.Length == 0 ? text : char.ToUpper(text[0], CultureInfo.CurrentCulture) + text[1..];
 
     private void AnimateIn()
     {

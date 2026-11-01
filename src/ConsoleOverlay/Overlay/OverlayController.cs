@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Windows.Threading;
 using ConsoleOverlay.Input;
 using ConsoleOverlay.Interop;
 using ConsoleOverlay.Settings;
@@ -19,6 +20,7 @@ public sealed class OverlayController
     private AppSettings _settings;
     private IntPtr _previousForeground;
     private bool _closing;
+    private readonly Stopwatch _openedAt = new();
 
     public OverlayController(OverlayWindow window, ControllerService controller, AppSettings settings)
     {
@@ -30,8 +32,18 @@ public sealed class OverlayController
         _window.Deactivated += (_, _) =>
         {
             // Clicking or Alt+Tabbing elsewhere closes the overlay without stealing focus back.
-            if (IsOpen && !_closing)
-                Close(restorePrevious: false);
+            // Windows can send a brief deactivation while the overlay is still taking focus, so
+            // ignore the first moments after opening and check who really has focus before closing.
+            if (!IsOpen || _closing || _openedAt.ElapsedMilliseconds < 500)
+                return;
+            _window.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            {
+                if (IsOpen && !_closing && Native.GetForegroundWindow() != _window.Handle)
+                {
+                    Log.Write("Overlay lost focus to another window; closing.");
+                    Close(restorePrevious: false);
+                }
+            });
         };
         _controller.Navigate += command =>
         {
@@ -74,10 +86,14 @@ public sealed class OverlayController
 
         _previousForeground = foreground;
         IsOpen = true;
+        _openedAt.Restart();
 
-        _window.ShowOn(GetMonitorRect(foreground), exclusive);
+        var monitor = GetMonitorRect(foreground);
+        Log.Write($"Opening over {GetProcessName(foreground) ?? "desktop"} on monitor {monitor.Left},{monitor.Top} {monitor.Width}x{monitor.Height}, exclusive={exclusive}.");
+        _window.ShowOn(monitor, exclusive);
         ForceForeground(_window.Handle);
         _controller.NavigationEnabled = true;
+        Log.Write($"Opened. Visible={_window.IsVisible}, has focus={Native.GetForegroundWindow() == _window.Handle}.");
     }
 
     public void Close(bool restorePrevious)
@@ -88,6 +104,7 @@ public sealed class OverlayController
         try
         {
             IsOpen = false;
+            Log.Write($"Closing (restore focus to game: {restorePrevious}).");
             _controller.NavigationEnabled = false;
             _window.Hide();
 

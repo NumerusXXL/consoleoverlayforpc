@@ -22,6 +22,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        HookCrashHandlers();
 
         _singleInstance = new Mutex(initiallyOwned: true, "ConsoleOverlay.SingleInstance", out bool isFirst);
         if (!isFirst)
@@ -49,6 +50,25 @@ public partial class App : Application
         CreateTray();
         ApplySettings(_settings, announce: false);
         ShowBalloon($"Running. Press {_settings.Hotkey} or {string.Join(" + ", _settings.ControllerCombo)} on your controller.");
+    }
+
+    private void HookCrashHandlers()
+    {
+        // Errors on the UI thread: log them and keep running instead of vanishing from the tray.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Write($"Error: {args.Exception}");
+            ShowBalloon($"Something went wrong: {args.Exception.Message} (details in the log)");
+            _overlay?.Close(restorePrevious: true);
+            args.Handled = true;
+        };
+        // Errors on other threads can't be recovered, but at least they end up in the log.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => Log.Write($"Fatal error: {args.ExceptionObject}");
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Log.Write($"Background error: {args.Exception}");
+            args.SetObserved();
+        };
     }
 
     private void ApplySettings(AppSettings settings, bool announce)
