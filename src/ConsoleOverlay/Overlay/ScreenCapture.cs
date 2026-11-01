@@ -10,12 +10,12 @@ using ConsoleOverlay.Interop;
 namespace ConsoleOverlay.Overlay;
 
 /// <summary>
-/// Takes a small snapshot of a monitor to use as the blurred background behind the overlay.
-/// Shrinking the image already blurs it and keeps the blur effect cheap on large screens.
+/// Takes a snapshot of a monitor to use as the background behind the overlay. It is shown sharp at
+/// first (so opening doesn't jump) and then blurred. Half resolution keeps it light on large screens.
 /// </summary>
 internal static class ScreenCapture
 {
-    public static BitmapSource? Capture(Native.RECT area, int downscale = 8)
+    public static BitmapSource? Capture(Native.RECT area, int downscale = 2)
     {
         try
         {

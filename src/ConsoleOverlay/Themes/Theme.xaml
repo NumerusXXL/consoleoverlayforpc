@@ -21,36 +21,61 @@
     <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
-    <!-- A row in a page list (settings rows, placeholders). Focus = light fill + white outline. -->
+    <!-- A row in a page list (settings rows, placeholders). Focus fades in a light fill and a white ring.
+         Only Opacity of elements inside the template is animated (style values are frozen and can't be). -->
     <Style x:Key="RowButton" TargetType="Button">
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Foreground" Value="{StaticResource SoftTextBrush}" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="Padding" Value="16,12" />
+        <Setter Property="Padding" Value="18,14" />
         <Setter Property="Margin" Value="0,0,0,2" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Root"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="12"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
-                    </Border>
+                    <Grid x:Name="Root">
+                        <Border x:Name="Hover" Background="{StaticResource FocusFillBrush}" CornerRadius="12" Opacity="0" />
+                        <Border x:Name="Fill" Background="{StaticResource FocusFillBrush}" CornerRadius="12" Opacity="0" />
+                        <Border x:Name="Ring" BorderBrush="{StaticResource TextBrush}" BorderThickness="2" CornerRadius="12" Opacity="0" />
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="Center" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="{StaticResource FocusFillBrush}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter Property="Background" Value="{StaticResource FocusFillBrush}" />
-                            <Setter Property="BorderBrush" Value="{StaticResource TextBrush}" />
                             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Fill" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Fill" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Root" Property="Opacity" Value="0.8" />
@@ -61,7 +86,8 @@
         </Setter>
     </Style>
 
-    <!-- A window tile on the All Tabs page. Focus = white outline around the tile. -->
+    <!-- A window tile on the All Tabs page. Focus lifts the tile slightly and fades in a white ring.
+         The ScaleTransform lives inside the template so it can be animated. -->
     <Style x:Key="TileButton" TargetType="Button">
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Foreground" Value="{StaticResource SoftTextBrush}" />
@@ -70,19 +96,56 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Outline" BorderBrush="Transparent" BorderThickness="2" CornerRadius="17" Padding="3">
-                        <Border x:Name="Root" Background="{StaticResource TileBrush}" CornerRadius="14" Padding="14,12">
-                            <ContentPresenter />
-                        </Border>
-                    </Border>
+                    <Grid RenderTransformOrigin="0.5,0.5">
+                        <Grid.RenderTransform>
+                            <ScaleTransform x:Name="Lift" ScaleX="1" ScaleY="1" />
+                        </Grid.RenderTransform>
+                        <Border x:Name="Ring" BorderBrush="{StaticResource TextBrush}" BorderThickness="2" CornerRadius="17" Opacity="0" />
+                        <Border Margin="5" Background="{StaticResource TileBrush}" CornerRadius="14" />
+                        <Border x:Name="Shine" Margin="5" Background="{StaticResource FocusFillBrush}" CornerRadius="14" Opacity="0" />
+                        <ContentPresenter Margin="19,17" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Root" Property="Background" Value="#FF2E3547" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Outline" Property="BorderBrush" Value="{StaticResource TextBrush}" />
-                            <Setter TargetName="Root" Property="Background" Value="#FF2E3547" />
                             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleX" To="1.04" Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleY" To="1.04" Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -91,14 +154,12 @@
     </Style>
 
     <!-- Dock item: an icon, which widens into a light pill with its name when it is the current page.
+         Its colors, padding and label are animated from code (OverlayWindow.AnimateDock).
          Not focusable: pages are switched with LB/RB (or a click), focus stays inside the page. -->
     <Style x:Key="DockButton" TargetType="Button">
         <Setter Property="Focusable" Value="False" />
-        <Setter Property="Foreground" Value="{StaticResource IconBrush}" />
-        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Height" Value="44" />
         <Setter Property="MinWidth" Value="44" />
-        <Setter Property="Padding" Value="0" />
         <Setter Property="Margin" Value="3,0" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
@@ -110,16 +171,6 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            </Trigger>
-            <Trigger Property="Tag" Value="Selected">
-                <Setter Property="Background" Value="{StaticResource SelectedFillBrush}" />
-                <Setter Property="Foreground" Value="{StaticResource SelectedTextBrush}" />
-                <Setter Property="Padding" Value="14,0,18,0" />
-            </Trigger>
-        </Style.Triggers>
     </Style>
 
     <Style x:Key="PageTitle" TargetType="TextBlock">

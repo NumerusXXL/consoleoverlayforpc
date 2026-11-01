@@ -9,7 +9,8 @@
         Topmost="True"
         FontFamily="{StaticResource UiFont}"
         Foreground="{StaticResource TextBrush}"
-        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
         UseLayoutRounding="True">
 
     <Grid x:Name="Root" ClipToBounds="True">
@@ -17,10 +18,10 @@
         <Rectangle x:Name="OpaqueBackdrop" Fill="{StaticResource OpaqueBackdropBrush}" Visibility="Collapsed" />
         <Image x:Name="Snapshot" Stretch="Fill" Margin="-40" RenderOptions.BitmapScalingMode="Linear">
             <Image.Effect>
-                <BlurEffect Radius="14" KernelType="Gaussian" RenderingBias="Performance" />
+                <BlurEffect x:Name="SnapshotBlur" Radius="0" KernelType="Gaussian" RenderingBias="Performance" />
             </Image.Effect>
         </Image>
-        <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
+        <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" Opacity="0" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
 
         <!-- Page card -->
         <Border x:Name="PageCard"
@@ -31,9 +32,14 @@
                 BorderBrush="{StaticResource HairlineBrush}"
                 BorderThickness="1"
                 CornerRadius="26"
-                Padding="32,28,32,22">
+                Padding="32,28,32,22"
+                Opacity="0"
+                RenderTransformOrigin="0.5,0.5">
             <Border.RenderTransform>
-                <TranslateTransform x:Name="PageOffset" />
+                <TransformGroup>
+                    <ScaleTransform x:Name="PageScale" />
+                    <TranslateTransform x:Name="PageOffset" />
+                </TransformGroup>
             </Border.RenderTransform>
             <Grid>
                 <Grid.RowDefinitions>
@@ -65,7 +71,11 @@
                 BorderBrush="{StaticResource HairlineBrush}"
                 BorderThickness="1"
                 CornerRadius="30"
-                Padding="8">
+                Padding="8"
+                Opacity="0">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="DockOffset" />
+            </Border.RenderTransform>
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="LB" FontSize="10" FontWeight="Bold" Foreground="{StaticResource IconBrush}" VerticalAlignment="Center" Margin="8,0,6,0" />
                 <StackPanel x:Name="DockItems" Orientation="Horizontal" />

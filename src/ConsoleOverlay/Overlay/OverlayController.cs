@@ -19,7 +19,6 @@ public sealed class OverlayController
     private readonly ControllerService _controller;
     private AppSettings _settings;
     private IntPtr _previousForeground;
-    private bool _closing;
     private readonly Stopwatch _openedAt = new();
 
     public OverlayController(OverlayWindow window, ControllerService controller, AppSettings settings)
@@ -29,21 +28,17 @@ public sealed class OverlayController
         _settings = settings;
 
         _window.CloseRequested += () => Close(restorePrevious: true);
-        _window.SwitchToWindowRequested += hwnd =>
-        {
-            Close(restorePrevious: false);
-            OpenWindows.SwitchTo(hwnd);
-        };
+        _window.SwitchToWindowRequested += hwnd => Close(restorePrevious: false, then: () => OpenWindows.SwitchTo(hwnd));
         _window.Deactivated += (_, _) =>
         {
             // Clicking or Alt+Tabbing elsewhere closes the overlay without stealing focus back.
             // Windows can send a brief deactivation while the overlay is still taking focus, so
             // ignore the first moments after opening and check who really has focus before closing.
-            if (!IsOpen || _closing || _openedAt.ElapsedMilliseconds < 500)
+            if (!IsOpen || _openedAt.ElapsedMilliseconds < 500)
                 return;
             _window.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             {
-                if (IsOpen && !_closing && Native.GetForegroundWindow() != _window.Handle)
+                if (IsOpen && Native.GetForegroundWindow() != _window.Handle)
                 {
                     Log.Write("Overlay lost focus to another window; closing.");
                     Close(restorePrevious: false);
@@ -108,20 +103,22 @@ public sealed class OverlayController
         Log.Write($"Opened. Visible={_window.IsVisible}, has focus={Native.GetForegroundWindow() == _window.Handle}.");
     }
 
-    public void Close(bool restorePrevious)
+    /// <summary>
+    /// Closes with the fade-out animation. Focus goes back to the game (or <paramref name="then"/> runs)
+    /// once the overlay is really gone, so the game doesn't get input while the overlay still covers it.
+    /// </summary>
+    public void Close(bool restorePrevious, Action? then = null)
     {
         if (!IsOpen) return;
 
-        _closing = true;
-        try
-        {
-            IsOpen = false;
-            Log.Write($"Closing (restore focus to game: {restorePrevious}).");
-            _controller.NavigationEnabled = false;
-            _window.Hide();
+        IsOpen = false;
+        Log.Write($"Closing (restore focus to game: {restorePrevious}).");
+        _controller.NavigationEnabled = false;
 
-            var previous = _previousForeground;
-            _previousForeground = IntPtr.Zero;
+        var previous = _previousForeground;
+        _previousForeground = IntPtr.Zero;
+        _window.HideAnimated(() =>
+        {
             if (restorePrevious && previous != IntPtr.Zero && Native.IsWindow(previous))
             {
                 // An exclusive fullscreen game minimizes itself when it loses focus; bring it back.
@@ -129,11 +126,8 @@ public sealed class OverlayController
                     Native.ShowWindow(previous, Native.SW_RESTORE);
                 Native.SetForegroundWindow(previous);
             }
-        }
-        finally
-        {
-            _closing = false;
-        }
+            then?.Invoke();
+        });
     }
 
     // ---- Helpers ----------------------------------------------------------------------------

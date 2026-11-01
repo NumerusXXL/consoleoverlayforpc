@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using ConsoleOverlay.Input;
@@ -31,7 +32,16 @@ public partial class OverlayWindow : Window
         public required string Hint { get; init; }
         public required Panel Content { get; init; }
         public Button DockButton { get; set; } = null!;
+        public TextBlock DockLabel { get; set; } = null!;
+        public SolidColorBrush DockFill { get; set; } = null!;
+        public SolidColorBrush DockInk { get; set; } = null!;
     }
+
+    private static readonly Color PillColor = Color.FromRgb(0xF2, 0xF4, 0xF8);
+    private static readonly Color PillInkColor = Color.FromRgb(0x0B, 0x0E, 0x16);
+    private static readonly Color IconColor = Color.FromRgb(0x8A, 0x93, 0xA6);
+    private const double SnapshotBlurRadius = 26;
+    private int _visibilityToken;
 
     private readonly List<Page> _pages = [];
     private readonly DispatcherTimer _clock;
@@ -91,7 +101,37 @@ public partial class OverlayWindow : Window
         var page = new Page { Name = name, Icon = icon, Hint = hint, Content = content };
         int index = _pages.Count;
 
-        page.DockButton = new Button { Style = (Style)FindResource("DockButton"), ToolTip = name };
+        // Brushes made here (not from resources) so their colors can be animated.
+        page.DockFill = new SolidColorBrush(Colors.Transparent);
+        page.DockInk = new SolidColorBrush(IconColor);
+        page.DockLabel = new TextBlock
+        {
+            Text = name,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 0,
+            Opacity = 0,
+        };
+        var dockContent = new StackPanel { Orientation = Orientation.Horizontal };
+        dockContent.Children.Add(new TextBlock
+        {
+            Text = icon,
+            FontFamily = (FontFamily)FindResource("IconFont"),
+            FontSize = 18,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        dockContent.Children.Add(page.DockLabel);
+
+        page.DockButton = new Button
+        {
+            Style = (Style)FindResource("DockButton"),
+            ToolTip = name,
+            Content = dockContent,
+            Background = page.DockFill,
+            Foreground = page.DockInk,
+            Padding = new Thickness(13, 0, 13, 0),
+        };
         page.DockButton.Click += (_, _) => SelectPage(index, focusFirst: true);
         DockItems.Children.Add(page.DockButton);
 
@@ -113,8 +153,7 @@ public partial class OverlayWindow : Window
             var page = _pages[i];
             bool selected = i == _selected;
             page.Content.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
-            page.DockButton.Tag = selected ? "Selected" : null;
-            page.DockButton.Content = DockContent(page, selected);
+            AnimateDock(page, selected);
         }
 
         var current = _pages[_selected];
@@ -125,8 +164,8 @@ public partial class OverlayWindow : Window
         if (previous != _selected)
         {
             // Slide the page in from the side it came from.
-            double from = (_selected > previous ? 1 : -1) * 24;
-            var duration = new Duration(TimeSpan.FromMilliseconds(160));
+            double from = (_selected > previous ? 1 : -1) * 40;
+            var duration = new Duration(TimeSpan.FromMilliseconds(240));
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             var slide = new TranslateTransform();
             PageHost.RenderTransform = slide;
@@ -138,28 +177,24 @@ public partial class OverlayWindow : Window
             FocusFirst();
     }
 
-    private object DockContent(Page page, bool selected)
+    /// <summary>The current page's dock icon widens into a light pill and its name slides in.</summary>
+    private static void AnimateDock(Page page, bool selected)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(new TextBlock
-        {
-            Text = page.Icon,
-            FontFamily = (FontFamily)FindResource("IconFont"),
-            FontSize = 18,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        if (selected)
-        {
-            row.Children.Add(new TextBlock
-            {
-                Text = page.Name,
-                FontSize = 14,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(8, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-        }
-        return row;
+        var duration = new Duration(TimeSpan.FromMilliseconds(220));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+        page.DockFill.BeginAnimation(SolidColorBrush.ColorProperty,
+            new ColorAnimation(selected ? PillColor : Color.FromArgb(0, PillColor.R, PillColor.G, PillColor.B), duration) { EasingFunction = ease });
+        page.DockInk.BeginAnimation(SolidColorBrush.ColorProperty,
+            new ColorAnimation(selected ? PillInkColor : IconColor, duration) { EasingFunction = ease });
+        page.DockButton.BeginAnimation(Control.PaddingProperty,
+            new ThicknessAnimation(selected ? new Thickness(14, 0, 18, 0) : new Thickness(13, 0, 13, 0), duration) { EasingFunction = ease });
+        page.DockLabel.BeginAnimation(FrameworkElement.MaxWidthProperty,
+            new DoubleAnimation(selected ? 160 : 0, duration) { EasingFunction = ease });
+        page.DockLabel.BeginAnimation(FrameworkElement.MarginProperty,
+            new ThicknessAnimation(selected ? new Thickness(8, 0, 0, 0) : new Thickness(0), duration) { EasingFunction = ease });
+        page.DockLabel.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(selected ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(selected ? 260 : 120))));
     }
 
     private void FocusFirst()
@@ -372,6 +407,7 @@ public partial class OverlayWindow : Window
         UpdateClock();
         _clock.Start();
 
+        _visibilityToken++; // cancels a close animation that is still running
         if (!IsVisible)
             Show();
 
@@ -391,12 +427,58 @@ public partial class OverlayWindow : Window
         ClockText.Text = $"{now.ToString("t", CultureInfo.CurrentCulture)}  ·  {date}";
     }
 
+    /// <summary>
+    /// Opening: the snapshot starts sharp (it looks exactly like the screen), then blurs and dims while the
+    /// page card rises in and the dock slides up.
+    /// </summary>
     private void AnimateIn()
     {
-        var duration = new Duration(TimeSpan.FromMilliseconds(200));
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, duration));
-        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(24, 0, duration) { EasingFunction = ease });
+        var medium = new Duration(TimeSpan.FromMilliseconds(260));
+        var slow = new Duration(TimeSpan.FromMilliseconds(320));
+        var delayed = TimeSpan.FromMilliseconds(60);
+
+        Root.BeginAnimation(OpacityProperty, null);
+        Root.Opacity = 1;
+        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, SnapshotBlurRadius, slow) { EasingFunction = ease });
+        Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
+        OpaqueBackdrop.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
+
+        PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed });
+        PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.96, 1, slow) { EasingFunction = ease, BeginTime = delayed });
+        PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.96, 1, slow) { EasingFunction = ease, BeginTime = delayed });
+        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(28, 0, slow) { EasingFunction = ease, BeginTime = delayed });
+
+        Dock.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed + delayed });
+        DockOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(40, 0, slow) { EasingFunction = ease, BeginTime = delayed + delayed });
+    }
+
+    /// <summary>
+    /// Closing: the reverse. The blur clears back to the sharp snapshot, so when the window disappears the
+    /// real screen underneath looks the same and nothing jumps. Calls <paramref name="after"/> once hidden.
+    /// </summary>
+    public void HideAnimated(Action? after)
+    {
+        int token = ++_visibilityToken;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var fast = new Duration(TimeSpan.FromMilliseconds(170));
+
+        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, fast) { EasingFunction = ease });
+        Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
+        PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
+        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(20, fast) { EasingFunction = ease });
+        DockOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(40, fast) { EasingFunction = ease });
+        Dock.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
+
+        // Without a snapshot (exclusive fullscreen) the whole window fades instead.
+        var fade = new DoubleAnimation(OpaqueBackdrop.Visibility == Visibility.Visible ? 0 : 1, fast);
+        fade.Completed += (_, _) =>
+        {
+            if (token != _visibilityToken) return; // reopened meanwhile
+            Hide();
+            after?.Invoke();
+        };
+        Root.BeginAnimation(OpacityProperty, fade);
     }
 
     private void HideFromAltTab()
