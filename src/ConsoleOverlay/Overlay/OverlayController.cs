@@ -29,6 +29,11 @@ public sealed class OverlayController
         _settings = settings;
 
         _window.CloseRequested += () => Close(restorePrevious: true);
+        _window.SwitchToWindowRequested += hwnd =>
+        {
+            Close(restorePrevious: false);
+            OpenWindows.SwitchTo(hwnd);
+        };
         _window.Deactivated += (_, _) =>
         {
             // Clicking or Alt+Tabbing elsewhere closes the overlay without stealing focus back.
@@ -54,7 +59,11 @@ public sealed class OverlayController
 
     public bool IsOpen { get; private set; }
 
-    public void UpdateSettings(AppSettings settings) => _settings = settings;
+    public void UpdateSettings(AppSettings settings)
+    {
+        _settings = settings;
+        _window.UpdateSettings(settings);
+    }
 
     public void Toggle()
     {
@@ -90,7 +99,10 @@ public sealed class OverlayController
 
         var monitor = GetMonitorRect(foreground);
         Log.Write($"Opening over {GetProcessName(foreground) ?? "desktop"} on monitor {monitor.Left},{monitor.Top} {monitor.Width}x{monitor.Height}, exclusive={exclusive}.");
-        _window.ShowOn(monitor, exclusive);
+        // Take the snapshot before anything of ours is on screen. Exclusive fullscreen games can't be captured.
+        var snapshot = exclusive ? null : ScreenCapture.Capture(monitor);
+        var windows = OpenWindows.List();
+        _window.ShowOn(monitor, exclusive, snapshot, windows, foreground);
         ForceForeground(_window.Handle);
         _controller.NavigationEnabled = true;
         Log.Write($"Opened. Visible={_window.IsVisible}, has focus={Native.GetForegroundWindow() == _window.Handle}.");
