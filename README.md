@@ -20,6 +20,8 @@ You need Windows 10 or 11 and the [.NET 8 Desktop Runtime](https://dotnet.micros
 
 The app lives in the system tray. Right-click the tray icon to open the overlay, edit settings, open the log or quit.
 
+If something goes wrong, the log is at `%APPDATA%\ConsoleOverlay\log.txt`. The log from the previous run is kept next to it as `log.previous.txt`.
+
 ## Controls
 
 | | Controller | Keyboard |
