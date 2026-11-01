@@ -7,7 +7,7 @@ Status: early development. See the roadmap below.
 ## Roadmap
 
 1. **Overlay skeleton**: tray app, overlay on top of games, open with a hotkey or a controller button, full controller navigation.
-2. **Time/date and sound**: clock header, master and per-app volume, output device switching.
+2. **Time/date and sound**: clock header, master and per-app volume, output and input device switching.
 3. **All Tabs and Discord**: switch between open windows, Discord voice controls.
 4. **Settings and release**: in-app button binding, themes, autostart, downloadable builds.
 
@@ -31,6 +31,15 @@ If something goes wrong, the log is at `%APPDATA%\ConsoleOverlay\log.txt`. The l
 | Select | A | Enter |
 | Close | B | Esc |
 | Switch tab | LB / RB | Q / E |
+
+On the **Sound** page:
+
+| | Controller | Keyboard |
+|---|---|---|
+| Change volume | Left / right | Left / right (or mouse wheel) |
+| Mute | Y (or A on a volume) | M |
+| Use a device | A on it | Enter |
+| Jump between devices and mixer | LT / RT (or stick clicks) | Tab |
 
 Both the shortcut and the controller combo can be changed in the settings file.
 

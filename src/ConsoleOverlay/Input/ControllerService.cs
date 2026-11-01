@@ -15,6 +15,9 @@ public enum NavCommand
     Back,
     PreviousTab,
     NextTab,
+    Mute,        // Y
+    ColumnLeft,  // LT or left stick click
+    ColumnRight, // RT or right stick click
 }
 
 /// <summary>
@@ -133,6 +136,9 @@ public sealed class ControllerService : IDisposable
         if (pressed.HasFlag(ControllerButtons.B)) Raise(NavCommand.Back);
         if (pressed.HasFlag(ControllerButtons.LeftShoulder)) Raise(NavCommand.PreviousTab);
         if (pressed.HasFlag(ControllerButtons.RightShoulder)) Raise(NavCommand.NextTab);
+        if (pressed.HasFlag(ControllerButtons.Y)) Raise(NavCommand.Mute);
+        if ((pressed & (ControllerButtons.LeftTrigger | ControllerButtons.LeftStick)) != 0) Raise(NavCommand.ColumnLeft);
+        if ((pressed & (ControllerButtons.RightTrigger | ControllerButtons.RightStick)) != 0) Raise(NavCommand.ColumnRight);
 
         // Directions repeat while held, like a console menu.
         var direction = PickDirection(held & Directions);

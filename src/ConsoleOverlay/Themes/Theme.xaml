@@ -16,6 +16,7 @@
     <SolidColorBrush x:Key="FocusFillBrush" Color="#14FFFFFF" />
     <SolidColorBrush x:Key="TileBrush" Color="#FF262C3A" />
     <SolidColorBrush x:Key="DangerTextBrush" Color="#FFF0A5A5" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#FF3A4256" />
 
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
     <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
