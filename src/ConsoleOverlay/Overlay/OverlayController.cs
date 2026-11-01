@@ -29,6 +29,7 @@ public sealed class OverlayController
 
         _window.CloseRequested += () => Close(restorePrevious: true);
         _window.SwitchToWindowRequested += hwnd => Close(restorePrevious: false, then: () => OpenWindows.SwitchTo(hwnd));
+        _window.CloseThenRequested += action => Close(restorePrevious: false, then: action);
         _window.Deactivated += (_, _) =>
         {
             // Clicking or Alt+Tabbing elsewhere closes the overlay without stealing focus back.

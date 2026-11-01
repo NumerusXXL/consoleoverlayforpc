@@ -16,6 +16,7 @@ public enum NavCommand
     PreviousTab,
     NextTab,
     Mute,        // Y
+    Secondary,   // X: close a window on All Tabs, mute your mic on Discord
     ColumnLeft,  // LT or left stick click
     ColumnRight, // RT or right stick click
 }
@@ -137,6 +138,7 @@ public sealed class ControllerService : IDisposable
         if (pressed.HasFlag(ControllerButtons.LeftShoulder)) Raise(NavCommand.PreviousTab);
         if (pressed.HasFlag(ControllerButtons.RightShoulder)) Raise(NavCommand.NextTab);
         if (pressed.HasFlag(ControllerButtons.Y)) Raise(NavCommand.Mute);
+        if (pressed.HasFlag(ControllerButtons.X)) Raise(NavCommand.Secondary);
         if ((pressed & (ControllerButtons.LeftTrigger | ControllerButtons.LeftStick)) != 0) Raise(NavCommand.ColumnLeft);
         if ((pressed & (ControllerButtons.RightTrigger | ControllerButtons.RightStick)) != 0) Raise(NavCommand.ColumnRight);
 

@@ -8,7 +8,7 @@ Status: early development. See the roadmap below.
 
 1. **Overlay skeleton**: tray app, overlay on top of games, open with a hotkey or a controller button, full controller navigation.
 2. **Time/date and sound**: clock header, master and per-app volume, output and input device switching.
-3. **All Tabs and Discord**: switch between open windows, Discord voice controls.
+3. **All Tabs and Discord**: switch between open windows with live previews, Discord voice controls.
 4. **Settings and release**: in-app button binding, themes, autostart, downloadable builds.
 
 ## Running it
@@ -41,6 +41,25 @@ On the **Sound** page:
 | Use a device | A on it | Enter |
 | Jump between devices and mixer | LT / RT (or stick clicks) | Tab |
 
+On the **All Tabs** page (opens first):
+
+| | Controller | Keyboard |
+|---|---|---|
+| Switch to a window | A | Enter |
+| Close a window | X (press twice for the game you came from) | X or Delete |
+
+Each tile shows a live preview of the window. If an app asks something when it closes (like "save changes?"), the overlay brings it to the front so you can answer.
+
+On the **Discord** page:
+
+| | Controller | Keyboard |
+|---|---|---|
+| Mute your mic | X (anywhere on the page) | X |
+| Mute / unmute or use a row | A | Enter |
+| Mute someone for yourself | Y (or A) on them | M |
+| How loud you hear someone | Left / right on them | Left / right (or mouse wheel) |
+| Jump between you and the channel | LT / RT | Tab |
+
 Both the shortcut and the controller combo can be changed in the settings file.
 
 ## Settings
@@ -52,13 +71,44 @@ Settings are stored in `%APPDATA%\ConsoleOverlay\settings.json`. Use **Edit sett
   "Hotkey": "Ctrl+Alt+G",
   "ControllerCombo": [ "Back", "Start" ],
   "ExclusiveFullscreenFallback": true,
-  "ExclusiveFullscreenExcludedGames": [ "oldgame.exe" ]
+  "ExclusiveFullscreenExcludedGames": [ "oldgame.exe" ],
+  "DiscordClientId": "",
+  "DiscordClientSecret": ""
 }
 ```
 
 Button names: `A`, `B`, `X`, `Y`, `DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `Start`, `Back`, `LeftStick`, `RightStick`, `LeftShoulder`, `RightShoulder`, `LeftTrigger`, `RightTrigger`, `Guide`.
 
 `Guide` is the Xbox button. Windows usually gives it to the Xbox Game Bar (and Steam may take it too), so turn those off for the Guide button if you want to use it here.
+
+## Discord voice controls
+
+The Discord page shows the voice channel you're in, with a ring around whoever is talking, and lets you mute, deafen, leave the call and set how loud you hear each person. It talks to the Discord desktop app on your PC.
+
+Discord only allows this for apps you registered yourself, so there is a one-time setup of a couple of minutes. It's free and needs no coding.
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and sign in with your normal Discord account.
+2. Click **New Application**, name it something like `Console Overlay`, accept the terms and click **Create**.
+3. In the menu on the left, open **OAuth2**.
+4. Copy the **Client ID**.
+5. Under **Client Secret**, click **Reset Secret** and copy the secret. Discord only shows it once, so paste it somewhere right away.
+6. Still on the OAuth2 page, under **Redirects**, click **Add Redirect**, type `http://localhost` and click **Save Changes**.
+7. In Console Overlay, right-click the tray icon, choose **Edit settings**, and paste both values:
+   ```json
+   "DiscordClientId": "123456789012345678",
+   "DiscordClientSecret": "the secret you copied"
+   ```
+   Save the file, then choose **Reload settings** in the tray menu.
+8. Open the overlay, go to the **Discord** page and pick **Connect to Discord**. The overlay closes and Discord shows a prompt asking to allow Console Overlay. Click **Authorize**.
+
+That's it. Next time the page connects by itself. The sign-in is saved in `%APPDATA%\ConsoleOverlay\discord-signin.dat`, encrypted so only your Windows account can read it; delete that file to sign out. The Client Secret stays in your settings file and is only ever sent to Discord.
+
+If it doesn't connect:
+
+- **"Discord isn't running"**: use the Discord desktop app. The browser version can't be controlled.
+- **Nothing happens after Connect**: Discord might be minimized to the tray. Open it; the Authorize prompt is waiting there.
+- **Errors about the secret or the redirect**: check step 5 and 6, then reload settings.
+- **Someone else wants to use your app**: Discord only lets the app's owner use these controls (and up to 50 people added under **App Testers** in the portal). The simplest is for each person to create their own app.
 
 ## Fullscreen games
 
