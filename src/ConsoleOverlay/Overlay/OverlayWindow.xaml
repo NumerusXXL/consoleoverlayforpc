@@ -18,8 +18,10 @@
 
         <Border x:Name="OverlayPanel"
                 Width="460"
+                MinHeight="420"
                 Margin="28"
                 HorizontalAlignment="Left"
+                VerticalAlignment="Top"
                 Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource PanelBorderBrush}"
                 BorderThickness="1"

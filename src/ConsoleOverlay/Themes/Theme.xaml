@@ -4,7 +4,7 @@
     <!-- Palette -->
     <Color x:Key="AccentColor">#FF6E8BFF</Color>
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
-    <SolidColorBrush x:Key="BackdropBrush" Color="#99000000" />
+    <SolidColorBrush x:Key="BackdropBrush" Color="#C8000000" />
     <SolidColorBrush x:Key="BackdropOpaqueBrush" Color="#FF07080C" />
     <SolidColorBrush x:Key="PanelBrush" Color="#F014171F" />
     <SolidColorBrush x:Key="PanelBorderBrush" Color="#22FFFFFF" />
@@ -15,6 +15,7 @@
     <SolidColorBrush x:Key="HintBrush" Color="#FF6B7385" />
 
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
     <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
 
     <!-- A focusable tile. The focus ring is the main cue when using a controller. -->
@@ -36,13 +37,7 @@
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="12"
-                            Padding="{TemplateBinding Padding}"
-                            RenderTransformOrigin="0.5,0.5">
-                        <!-- Lives in the template (not a Style setter) so each card gets its own,
-                             animatable transform. Style setter values are frozen and can't be animated. -->
-                        <Border.RenderTransform>
-                            <ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1" />
-                        </Border.RenderTransform>
+                            Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="Center" />
                     </Border>
@@ -53,22 +48,6 @@
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter Property="Background" Value="{StaticResource CardFocusedBrush}" />
                             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                            <Trigger.EnterActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleX" To="1.02" Duration="0:0:0.12" />
-                                        <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="1.02" Duration="0:0:0.12" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.EnterActions>
-                            <Trigger.ExitActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.12" />
-                                        <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.12" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Root" Property="Opacity" Value="0.85" />
@@ -95,7 +74,7 @@
     <!-- Tab headers in the top strip. Selection is driven from code with Tag="Selected". -->
     <Style x:Key="TabHeader" TargetType="TextBlock">
         <Setter Property="FontSize" Value="15" />
-        <Setter Property="Margin" Value="0,0,20,0" />
+        <Setter Property="Margin" Value="0,0,22,0" />
         <Setter Property="Padding" Value="0,0,0,6" />
         <Setter Property="Foreground" Value="{StaticResource HintBrush}" />
         <Setter Property="Cursor" Value="Hand" />
