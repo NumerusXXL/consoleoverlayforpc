@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Only used for the tray icon and monitor lookup. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ConsoleOverlay</AssemblyName>
+    <RootNamespace>ConsoleOverlay</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.1.0</Version>
+    <!-- Lets the project compile on non-Windows machines (CI, containers). It still only runs on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Keep the idle footprint small. -->
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <!-- DPI awareness is set in app.manifest, which is right for a WPF app; this WinForms hint does not apply. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+</Project>

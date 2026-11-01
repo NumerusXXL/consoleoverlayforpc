@@ -1,0 +1,91 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using ConsoleOverlay.Input;
+
+namespace ConsoleOverlay.Settings;
+
+public sealed class AppSettings
+{
+    /// <summary>Keyboard shortcut that opens and closes the overlay.</summary>
+    public string Hotkey { get; set; } = "Ctrl+Alt+G";
+
+    /// <summary>
+    /// Controller buttons that must be held together to open and close the overlay.
+    /// Names: A, B, X, Y, DPadUp, DPadDown, DPadLeft, DPadRight, Start, Back, LeftStick, RightStick,
+    /// LeftShoulder, RightShoulder, LeftTrigger, RightTrigger, Guide.
+    /// Default is View + Menu (Back + Start).
+    /// </summary>
+    public List<string> ControllerCombo { get; set; } = ["Back", "Start"];
+
+    /// <summary>
+    /// When the game in front is in exclusive fullscreen, minimize it and open the overlay as a normal
+    /// window, then bring the game back on close. When false the overlay won't open over those games.
+    /// </summary>
+    public bool ExclusiveFullscreenFallback { get; set; } = true;
+
+    /// <summary>Process names (for example "oldgame.exe") the exclusive fullscreen fallback should skip.</summary>
+    public List<string> ExclusiveFullscreenExcludedGames { get; set; } = [];
+
+    public ControllerButtons ParseCombo(out List<string> unknown)
+    {
+        unknown = [];
+        var result = ControllerButtons.None;
+        foreach (var name in ControllerCombo)
+        {
+            if (Enum.TryParse(name.Trim(), ignoreCase: true, out ControllerButtons b) && b != ControllerButtons.None)
+                result |= b;
+            else
+                unknown.Add(name);
+        }
+        return result;
+    }
+}
+
+/// <summary>Loads and saves settings as JSON in %APPDATA%\ConsoleOverlay\settings.json.</summary>
+public static class SettingsStore
+{
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+    };
+
+    public static string Folder { get; } =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ConsoleOverlay");
+
+    public static string FilePath { get; } = Path.Combine(Folder, "settings.json");
+
+    public static AppSettings Load()
+    {
+        try
+        {
+            if (File.Exists(FilePath))
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Options) ?? new AppSettings();
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Could not read settings, using defaults: {ex.Message}");
+            return new AppSettings();
+        }
+
+        var defaults = new AppSettings();
+        Save(defaults);
+        return defaults;
+    }
+
+    public static void Save(AppSettings settings)
+    {
+        try
+        {
+            Directory.CreateDirectory(Folder);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(settings, Options));
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Could not save settings: {ex.Message}");
+        }
+    }
+}

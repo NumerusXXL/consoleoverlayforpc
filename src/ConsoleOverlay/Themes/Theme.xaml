@@ -1,0 +1,135 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Palette -->
+    <Color x:Key="AccentColor">#FF6E8BFF</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="BackdropBrush" Color="#99000000" />
+    <SolidColorBrush x:Key="BackdropOpaqueBrush" Color="#FF07080C" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#F014171F" />
+    <SolidColorBrush x:Key="PanelBorderBrush" Color="#22FFFFFF" />
+    <SolidColorBrush x:Key="CardBrush" Color="#FF1C2029" />
+    <SolidColorBrush x:Key="CardFocusedBrush" Color="#FF262C3A" />
+    <SolidColorBrush x:Key="TextBrush" Color="#FFF2F4F8" />
+    <SolidColorBrush x:Key="SubtleTextBrush" Color="#FF9AA3B5" />
+    <SolidColorBrush x:Key="HintBrush" Color="#FF6B7385" />
+
+    <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
+
+    <!-- A focusable tile. The focus ring is the main cue when using a controller. -->
+    <Style x:Key="CardButton" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="Padding" Value="18,14" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+        <Setter Property="RenderTransform">
+            <Setter.Value>
+                <ScaleTransform ScaleX="1" ScaleY="1" />
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Root"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="12"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{StaticResource CardFocusedBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter Property="Background" Value="{StaticResource CardFocusedBrush}" />
+                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1.02" Duration="0:0:0.12" />
+                                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1.02" Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1" Duration="0:0:0.12" />
+                                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1" Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.85" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="CardTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+
+    <Style x:Key="CardSubtitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Margin" Value="0,3,0,0" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+    </Style>
+
+    <!-- Tab headers in the top strip. Selection is driven from code with Tag="Selected". -->
+    <Style x:Key="TabHeader" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="Margin" Value="0,0,20,0" />
+        <Setter Property="Padding" Value="0,0,0,6" />
+        <Setter Property="Foreground" Value="{StaticResource HintBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="Selected">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Little button glyphs used in hints, e.g. "A Select". -->
+    <Style x:Key="ButtonGlyph" TargetType="Border">
+        <Setter Property="MinWidth" Value="22" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="CornerRadius" Value="11" />
+        <Setter Property="Padding" Value="6,0" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="Background" Value="#FF2A303D" />
+    </Style>
+
+    <Style x:Key="GlyphText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="HintText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Margin" Value="0,0,18,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+    </Style>
+
+</ResourceDictionary>
