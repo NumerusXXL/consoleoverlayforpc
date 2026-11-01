@@ -3,108 +3,84 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Console Overlay"
         WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
+        Background="#FF0B0D12"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
         FontFamily="{StaticResource UiFont}"
-        TextOptions.TextFormattingMode="Display"
+        Foreground="{StaticResource TextBrush}"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
         UseLayoutRounding="True">
 
-    <Grid>
-        <!-- Dims the game behind the panel. Fully opaque in exclusive fullscreen mode. -->
-        <Rectangle x:Name="Backdrop" Fill="{StaticResource BackdropBrush}" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
+    <Grid x:Name="Root" ClipToBounds="True">
+        <!-- A snapshot of the screen taken just before opening, blurred. Opaque fill instead in exclusive fullscreen. -->
+        <Rectangle x:Name="OpaqueBackdrop" Fill="{StaticResource OpaqueBackdropBrush}" Visibility="Collapsed" />
+        <Image x:Name="Snapshot" Stretch="Fill" Margin="-40" RenderOptions.BitmapScalingMode="Linear">
+            <Image.Effect>
+                <BlurEffect x:Name="SnapshotBlur" Radius="0" KernelType="Gaussian" RenderingBias="Performance" />
+            </Image.Effect>
+        </Image>
+        <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" Opacity="0" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
 
-        <Border x:Name="OverlayPanel"
-                Width="460"
-                MinHeight="420"
-                Margin="28"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Top"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="{StaticResource PanelBorderBrush}"
+        <!-- Page card -->
+        <Border x:Name="PageCard"
+                Width="880"
+                Margin="0,56,0,112"
+                HorizontalAlignment="Center"
+                Background="{StaticResource PageBrush}"
+                BorderBrush="{StaticResource HairlineBrush}"
                 BorderThickness="1"
-                CornerRadius="20"
-                Padding="28,26,28,20"
-                RenderTransformOrigin="0,0.5">
+                CornerRadius="26"
+                Padding="32,28,32,22"
+                Opacity="0"
+                RenderTransformOrigin="0.5,0.5">
             <Border.RenderTransform>
-                <TranslateTransform x:Name="PanelOffset" X="0" />
+                <TransformGroup>
+                    <ScaleTransform x:Name="PageScale" />
+                    <TranslateTransform x:Name="PageOffset" />
+                </TransformGroup>
             </Border.RenderTransform>
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.55" Color="Black" />
-            </Border.Effect>
-
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- Header -->
-                <StackPanel Grid.Row="0" Margin="0,0,0,22">
-                    <TextBlock Text="Overlay"
-                               FontFamily="{StaticResource DisplayFont}"
-                               FontSize="28"
-                               FontWeight="SemiBold"
-                               Foreground="{StaticResource TextBrush}" />
-                    <TextBlock x:Name="ModeText"
-                               Margin="0,2,0,0"
-                               FontSize="13"
-                               Foreground="{StaticResource SubtleTextBrush}" />
-                </StackPanel>
-
-                <!-- Tab strip: LB / tabs / RB -->
-                <DockPanel Grid.Row="1" Margin="0,0,0,18" LastChildFill="True">
-                    <Border DockPanel.Dock="Left" Style="{StaticResource ButtonGlyph}" Margin="0,0,14,6" VerticalAlignment="Center">
-                        <TextBlock Text="LB" Style="{StaticResource GlyphText}" />
-                    </Border>
-                    <Border DockPanel.Dock="Right" Style="{StaticResource ButtonGlyph}" Margin="8,0,0,6" VerticalAlignment="Center">
-                        <TextBlock Text="RB" Style="{StaticResource GlyphText}" />
-                    </Border>
-                    <Grid>
-                        <StackPanel x:Name="TabStrip" Orientation="Horizontal" />
-                        <!-- Accent underline that slides under the selected tab -->
-                        <Border x:Name="TabUnderline"
-                                Width="0"
-                                Height="3"
-                                CornerRadius="1.5"
-                                VerticalAlignment="Bottom"
-                                HorizontalAlignment="Left"
-                                Background="{StaticResource AccentBrush}">
-                            <Border.RenderTransform>
-                                <TranslateTransform x:Name="UnderlineOffset" />
-                            </Border.RenderTransform>
-                        </Border>
-                    </Grid>
+                <DockPanel Grid.Row="0" Margin="0,0,0,22" LastChildFill="False">
+                    <TextBlock x:Name="PageTitleText" DockPanel.Dock="Left" Style="{StaticResource PageTitle}" />
+                    <TextBlock x:Name="ClockText" DockPanel.Dock="Right" VerticalAlignment="Bottom" Margin="0,0,0,4"
+                               FontSize="14" Foreground="{StaticResource SubtleTextBrush}" />
                 </DockPanel>
 
-                <!-- Tab content -->
-                <ScrollViewer Grid.Row="2"
-                              x:Name="ContentScroller"
-                              VerticalScrollBarVisibility="Hidden"
-                              Focusable="False">
-                    <Grid x:Name="TabContent" />
+                <ScrollViewer Grid.Row="1" x:Name="PageScroller" VerticalScrollBarVisibility="Hidden" Focusable="False">
+                    <Grid x:Name="PageHost" />
                 </ScrollViewer>
 
-                <!-- Button hints -->
-                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0">
-                    <Border Style="{StaticResource ButtonGlyph}">
-                        <TextBlock Text="A" Style="{StaticResource GlyphText}" />
-                    </Border>
-                    <TextBlock Text="Select" Style="{StaticResource HintText}" />
-                    <Border Style="{StaticResource ButtonGlyph}">
-                        <TextBlock Text="B" Style="{StaticResource GlyphText}" />
-                    </Border>
-                    <TextBlock Text="Close" Style="{StaticResource HintText}" />
-                    <Border Style="{StaticResource ButtonGlyph}">
-                        <TextBlock Text="LB RB" Style="{StaticResource GlyphText}" />
-                    </Border>
-                    <TextBlock Text="Switch tab" Style="{StaticResource HintText}" />
-                </StackPanel>
+                <TextBlock Grid.Row="2" x:Name="PageHint" Margin="2,16,0,0" Style="{StaticResource HintText}" />
             </Grid>
+        </Border>
+
+        <!-- Dock -->
+        <Border x:Name="Dock"
+                Margin="0,0,0,36"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Background="{StaticResource DockBrush}"
+                BorderBrush="{StaticResource HairlineBrush}"
+                BorderThickness="1"
+                CornerRadius="30"
+                Padding="8"
+                Opacity="0">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="DockOffset" />
+            </Border.RenderTransform>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="LB" FontSize="10" FontWeight="Bold" Foreground="{StaticResource IconBrush}" VerticalAlignment="Center" Margin="8,0,6,0" />
+                <StackPanel x:Name="DockItems" Orientation="Horizontal" />
+                <TextBlock Text="RB" FontSize="10" FontWeight="Bold" Foreground="{StaticResource IconBrush}" VerticalAlignment="Center" Margin="6,0,8,0" />
+            </StackPanel>
         </Border>
     </Grid>
 </Window>
