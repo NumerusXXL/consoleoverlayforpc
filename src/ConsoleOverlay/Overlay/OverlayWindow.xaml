@@ -66,6 +66,7 @@
                         <StackPanel x:Name="TabStrip" Orientation="Horizontal" />
                         <!-- Accent underline that slides under the selected tab -->
                         <Border x:Name="TabUnderline"
+                                Width="0"
                                 Height="3"
                                 CornerRadius="1.5"
                                 VerticalAlignment="Bottom"

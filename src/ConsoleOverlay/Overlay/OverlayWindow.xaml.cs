@@ -115,6 +115,7 @@ public partial class OverlayWindow : Window
         var duration = new Duration(TimeSpan.FromMilliseconds(160));
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         UnderlineOffset.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(x, duration) { EasingFunction = ease });
+        // Width needs a real starting value (set to 0 in XAML); an unset Width is NaN and cannot be animated.
         TabUnderline.BeginAnimation(WidthProperty, new DoubleAnimation(header.ActualWidth, duration) { EasingFunction = ease });
     }
 
