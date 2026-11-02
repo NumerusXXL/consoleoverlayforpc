@@ -35,11 +35,11 @@ public sealed class OverlayController
             // Clicking or Alt+Tabbing elsewhere closes the overlay without stealing focus back.
             // Windows can send a brief deactivation while the overlay is still taking focus, so
             // ignore the first moments after opening and check who really has focus before closing.
-            if (!IsOpen || _openedAt.ElapsedMilliseconds < 500)
+            if (!IsOpen || _openedAt.ElapsedMilliseconds < 500 || _window.KeepOpen)
                 return;
             _window.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             {
-                if (IsOpen && Native.GetForegroundWindow() != _window.Handle)
+                if (IsOpen && !_window.KeepOpen && Native.GetForegroundWindow() != _window.Handle)
                 {
                     Log.Write("Overlay lost focus to another window; closing.");
                     Close(restorePrevious: false);
@@ -96,7 +96,7 @@ public sealed class OverlayController
         var monitor = GetMonitorRect(foreground);
         Log.Write($"Opening over {GetProcessName(foreground) ?? "desktop"} on monitor {monitor.Left},{monitor.Top} {monitor.Width}x{monitor.Height}, exclusive={exclusive}.");
         // Take the snapshot before anything of ours is on screen. Exclusive fullscreen games can't be captured.
-        var snapshot = exclusive ? null : ScreenCapture.Capture(monitor);
+        var snapshot = exclusive || !_window.WantsSnapshot ? null : ScreenCapture.Capture(monitor);
         var windows = OpenWindows.List();
         _window.ShowOn(monitor, exclusive, snapshot, windows, foreground);
         ForceForeground(_window.Handle);

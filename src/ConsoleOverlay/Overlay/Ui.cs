@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 
 namespace ConsoleOverlay.Overlay;
 
@@ -63,6 +65,41 @@ internal static class Ui
         FontSize = size,
         VerticalAlignment = VerticalAlignment.Center,
     };
+
+    public static void Fade(UIElement element, double to, int milliseconds) =>
+        element.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(to, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+
+    /// <summary>
+    /// Rows rise in one after another, a few milliseconds apart. Each element gets its own opacity back
+    /// afterwards, and its transform is removed, so nothing stays animated.
+    /// </summary>
+    public static void Stagger(IEnumerable<FrameworkElement> items, int stepMs, int maxSteps = 10)
+    {
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var duration = new Duration(TimeSpan.FromMilliseconds(320));
+        int index = 0;
+        foreach (var item in items)
+        {
+            var begin = TimeSpan.FromMilliseconds(Math.Min(index++, maxSteps) * stepMs);
+            double opacity = item.Opacity;
+            var previousTransform = item.RenderTransform;
+            var offset = new TranslateTransform(0, 10);
+            item.RenderTransform = offset;
+            item.Opacity = 0;
+
+            var fade = new DoubleAnimation(0, opacity, duration) { BeginTime = begin, EasingFunction = ease };
+            fade.Completed += (_, _) =>
+            {
+                item.BeginAnimation(UIElement.OpacityProperty, null);
+                item.Opacity = opacity;
+                if (item.RenderTransform == offset)
+                    item.RenderTransform = previousTransform;
+            };
+            item.BeginAnimation(UIElement.OpacityProperty, fade);
+            offset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, duration) { BeginTime = begin, EasingFunction = ease });
+        }
+    }
 
     public static bool IsInside(DependencyObject element, DependencyObject container)
     {

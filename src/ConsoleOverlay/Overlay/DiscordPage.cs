@@ -97,8 +97,8 @@ internal sealed class DiscordPage : IOverlayPage
 
     /// <summary>Close the overlay (without going back to the game), then run this.</summary>
     public event Action<Action>? CloseThen;
-    public event Action? EditSettings;
-    public event Action? ReloadSettings;
+    /// <summary>Show Settings › Discord, where the Client ID and Secret are entered.</summary>
+    public event Action? OpenSettings;
     public event Action? HintChanged;
 
     public DiscordPage(FrameworkElement resources)
@@ -147,6 +147,8 @@ internal sealed class DiscordPage : IOverlayPage
     public string Hint => _client.State == DiscordState.Ready
         ? "A select · X mute your mic · Y mute · ← → volume · B back · LB / RB other pages"
         : "A select · B back to game · LB / RB other pages";
+
+    public void SignOut() => _client.SignOut();
 
     public void UpdateSettings(AppSettings settings) => _client.Configure(settings.DiscordClientId, settings.DiscordClientSecret);
 
@@ -961,11 +963,10 @@ internal sealed class DiscordPage : IOverlayPage
                 _status.Children.Add(Ui.Section(_resources, "One-time setup", first: true));
                 _status.Children.Add(Ui.Placeholder(_resources, "Discord voice controls need a free Discord app",
                     "Discord only lets apps you registered yourself control voice. Create one in the Discord Developer Portal, " +
-                    "then put its Client ID and Client Secret in the settings file. The setup guide walks you through it in a couple of minutes."));
+                    "then enter its Client ID and Client Secret in Settings. The setup guide walks you through it in a couple of minutes."));
                 Add("Open the setup guide", "Opens in your browser", () => Open(SetupGuideUrl), primary: true);
                 Add("Open the Discord Developer Portal", "discord.com/developers/applications", () => Open(DeveloperPortalUrl));
-                Add("Edit settings file", "Paste DiscordClientId and DiscordClientSecret, then save", () => EditSettings?.Invoke());
-                Add("Reload settings", "Do this after saving the settings file", () => ReloadSettings?.Invoke());
+                Add("Enter Client ID and Secret", "Settings › Discord", () => OpenSettings?.Invoke());
                 break;
 
             case DiscordState.NotRunning:
@@ -997,7 +998,7 @@ internal sealed class DiscordPage : IOverlayPage
             case DiscordState.Failed:
                 _status.Children.Add(Ui.Placeholder(_resources, "Couldn't connect to Discord", _client.Problem ?? "Something went wrong. The log has details."));
                 Add("Try again", null, () => _ = _client.ConnectAsync(allowPrompt: false), primary: true);
-                Add("Edit settings file", "Check DiscordClientId and DiscordClientSecret", () => EditSettings?.Invoke());
+                Add("Check Client ID and Secret", "Settings › Discord", () => OpenSettings?.Invoke());
                 Add("Open the setup guide", "Opens in your browser", () => Open(SetupGuideUrl));
                 break;
         }

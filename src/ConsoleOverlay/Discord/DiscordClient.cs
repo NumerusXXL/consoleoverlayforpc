@@ -148,6 +148,14 @@ internal sealed class DiscordClient
         SetState(IsConfigured ? DiscordState.NotRunning : DiscordState.NotSetUp, null);
     }
 
+    /// <summary>Forgets the saved sign-in and drops the connection. Discord asks to authorize again next time.</summary>
+    public void SignOut()
+    {
+        DiscordTokenStore.Delete();
+        Disconnect();
+        SetState(IsConfigured ? DiscordState.NotRunning : DiscordState.NotSetUp, null);
+    }
+
     private bool IsConfigured => _clientId.Length > 0 && _clientSecret.Length > 0;
 
     // ---- Connecting -------------------------------------------------------------------------

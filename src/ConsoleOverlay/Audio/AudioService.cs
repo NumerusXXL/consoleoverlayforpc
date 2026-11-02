@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using NAudio.CoreAudioApi;
 
 namespace ConsoleOverlay.Audio;
@@ -26,41 +28,122 @@ public sealed class AppAudio
 /// Reads and changes Windows audio through Core Audio: devices, the default output's master volume, and
 /// every app's volume on that output. Holds no COM objects between <see cref="Refresh"/> and
 /// <see cref="Release"/>, so it costs nothing while the Sound page is closed.
+///
+/// All Core Audio work runs on one background thread. Reading devices and sessions takes tens of
+/// milliseconds, which on the UI thread made the overlay stutter once a second. Changes show up in the
+/// properties right away and are sent to Windows in the background.
 /// </summary>
 public sealed class AudioService : IDisposable
 {
+    private readonly BlockingCollection<Action> _queue = new();
+    private volatile int _version; // bumped by every change, so a refresh running meanwhile doesn't undo it
+
+    public AudioService()
+    {
+        var thread = new Thread(() =>
+        {
+            foreach (var work in _queue.GetConsumingEnumerable())
+            {
+                try { work(); }
+                catch (Exception ex) { Log.Write($"Audio: {ex.Message}"); }
+            }
+        })
+        { IsBackground = true, Name = "Audio" };
+        thread.SetApartmentState(ApartmentState.MTA);
+        thread.Start();
+    }
+
+    private void Post(Action work)
+    {
+        if (!_queue.IsAddingCompleted)
+            _queue.Add(work);
+    }
+
     private MMDeviceEnumerator? _enumerator;
     private MMDevice? _output;
     private MMDevice? _input;
     private readonly List<AudioSessionControl> _sessions = [];
-    private readonly Dictionary<uint, string> _processNames = [];
+    private readonly Dictionary<uint, string> _processNames = [];   // looking these up is slow, and they don't change
+    private readonly Dictionary<string, string> _deviceNames = [];
 
     public IReadOnlyList<AudioDevice> Outputs { get; private set; } = [];
     public IReadOnlyList<AudioDevice> Inputs { get; private set; } = [];
     public IReadOnlyList<AppAudio> Apps { get; private set; } = [];
-    public bool HasOutput => _output is not null;
+    public bool HasOutput { get; private set; }
     public int MasterVolume { get; private set; }
     public bool MasterMuted { get; private set; }
 
-    /// <summary>Re-reads devices, the master volume and the app mixer. Apps whose process is <paramref name="firstProcessId"/> come first.</summary>
-    public void Refresh(uint firstProcessId)
+    /// <summary>
+    /// Re-reads devices, the master volume and the app mixer in the background, then calls <paramref name="done"/>
+    /// (on the audio thread). Apps whose process is <paramref name="firstProcessId"/> come first.
+    /// </summary>
+    public void Refresh(uint firstProcessId, Action done) => Post(() =>
     {
+        RefreshNow(firstProcessId);
+        done();
+    });
+
+    private void RefreshNow(uint firstProcessId)
+    {
+        int version = _version;
+        var previousApps = Apps;
         ReleaseDevices();
         try
         {
             _enumerator ??= new MMDeviceEnumerator();
             _output = GetDefault(DataFlow.Render);
             _input = GetDefault(DataFlow.Capture);
-            Outputs = ListDevices(DataFlow.Render, _output?.ID);
-            Inputs = ListDevices(DataFlow.Capture, _input?.ID);
+            var outputs = ListDevices(DataFlow.Render, _output?.ID);
+            var inputs = ListDevices(DataFlow.Capture, _input?.ID);
 
+            int masterVolume = 0;
+            bool masterMuted = false;
             if (_output is not null)
             {
                 var endpoint = _output.AudioEndpointVolume;
-                MasterVolume = ToPercent(endpoint.MasterVolumeLevelScalar);
-                MasterMuted = endpoint.Mute;
+                masterVolume = ToPercent(endpoint.MasterVolumeLevelScalar);
+                masterMuted = endpoint.Mute;
             }
-            Apps = ReadApps(firstProcessId);
+            var apps = ReadApps(firstProcessId);
+
+            // Something was changed while this ran (or on the cached rows before it): keep what the person set,
+            // not what was read before it, and make sure Windows has it.
+            if (version != _version)
+            {
+                masterVolume = MasterVolume;
+                masterMuted = MasterMuted;
+                if (_output is not null)
+                {
+                    var endpoint = _output.AudioEndpointVolume;
+                    Try("set master volume", () =>
+                    {
+                        endpoint.MasterVolumeLevelScalar = masterVolume / 100f;
+                        endpoint.Mute = masterMuted;
+                    });
+                }
+                foreach (var app in apps)
+                {
+                    if (previousApps.FirstOrDefault(p => p.Key == app.Key) is not { } previous) continue;
+                    if (previous.Volume == app.Volume && previous.Muted == app.Muted) continue;
+                    app.Volume = previous.Volume;
+                    app.Muted = previous.Muted;
+                    Try($"set volume of {app.Name}", () =>
+                    {
+                        foreach (var control in app.Controls)
+                        {
+                            control.Volume = app.Volume / 100f;
+                            control.Mute = app.Muted;
+                        }
+                    });
+                }
+            }
+
+            Outputs = outputs;
+            Inputs = inputs;
+            MasterVolume = masterVolume;
+            MasterMuted = masterMuted;
+            Apps = apps;
+            HasOutput = _output is not null;
         }
         catch (Exception ex)
         {
@@ -72,53 +155,61 @@ public sealed class AudioService : IDisposable
 
     public void SetMasterVolume(int percent)
     {
-        if (_output is null) return;
-        Try("set master volume", () =>
+        _version++;
+        bool unmute = percent > 0 && MasterMuted; // turning it up should be heard
+        MasterVolume = percent;
+        if (unmute) MasterMuted = false;
+        Post(() =>
         {
-            _output.AudioEndpointVolume.MasterVolumeLevelScalar = percent / 100f;
-            MasterVolume = percent;
-            if (percent > 0 && MasterMuted)
-                SetMasterMuted(false); // turning it up should be heard
+            if (_output is null) return;
+            Try("set master volume", () =>
+            {
+                _output.AudioEndpointVolume.MasterVolumeLevelScalar = percent / 100f;
+                if (unmute) _output.AudioEndpointVolume.Mute = false;
+            });
         });
     }
 
     public void SetMasterMuted(bool muted)
     {
-        if (_output is null) return;
-        Try("mute output", () =>
+        _version++;
+        MasterMuted = muted;
+        Post(() =>
         {
-            _output.AudioEndpointVolume.Mute = muted;
-            MasterMuted = muted;
+            if (_output is null) return;
+            Try("mute output", () => _output.AudioEndpointVolume.Mute = muted);
         });
     }
 
     public void SetAppVolume(AppAudio app, int percent)
     {
-        Try($"set volume of {app.Name}", () =>
+        _version++;
+        bool unmute = percent > 0 && app.Muted;
+        app.Volume = percent;
+        if (unmute) app.Muted = false;
+        Post(() => Try($"set volume of {app.Name}", () =>
         {
             foreach (var control in app.Controls)
             {
                 control.Volume = percent / 100f;
-                if (percent > 0 && app.Muted)
-                    control.Mute = false;
+                if (unmute) control.Mute = false;
             }
-            app.Volume = percent;
-            if (percent > 0) app.Muted = false;
-        });
+        }));
     }
 
     public void SetAppMuted(AppAudio app, bool muted)
     {
-        Try($"mute {app.Name}", () =>
+        _version++;
+        app.Muted = muted;
+        Post(() => Try($"mute {app.Name}", () =>
         {
             foreach (var control in app.Controls)
                 control.Mute = muted;
-            app.Muted = muted;
-        });
+        }));
     }
 
     /// <summary>Mutes or unmutes a microphone (or any device) by id.</summary>
-    public void SetDeviceMuted(string id, bool muted)
+    public void SetDeviceMuted(string id, bool muted) => Post(() =>
     {
         if (_enumerator is null) return;
         Try("mute device", () =>
@@ -126,10 +217,10 @@ public sealed class AudioService : IDisposable
             using var device = _enumerator.GetDevice(id);
             device.AudioEndpointVolume.Mute = muted;
         });
-    }
+    });
 
     /// <summary>Makes a device the default for games, apps and calls, like picking it in the Windows sound settings.</summary>
-    public void SetDefaultDevice(string id)
+    public void SetDefaultDevice(string id) => Post(() =>
     {
         Try("switch device", () =>
         {
@@ -144,19 +235,30 @@ public sealed class AudioService : IDisposable
                 Marshal.ReleaseComObject(policy);
             }
         });
-    }
+    });
 
     /// <summary>Lets go of every COM object. The next <see cref="Refresh"/> opens them again.</summary>
-    public void Release()
+    /// <summary>
+    /// Lets go of the devices and sessions. What was read last stays in the properties, so the page can show it
+    /// instantly next time while a fresh read runs.
+    /// </summary>
+    public void Release() => Post(() =>
     {
         ReleaseDevices();
-        _enumerator?.Dispose();
-        _enumerator = null;
-        Apps = [];
-        _processNames.Clear();
-    }
+        if (_processNames.Count > 300) _processNames.Clear();
+        if (_deviceNames.Count > 100) _deviceNames.Clear();
+    });
 
-    public void Dispose() => Release();
+    public void Dispose()
+    {
+        Post(() =>
+        {
+            ReleaseDevices();
+            _enumerator?.Dispose();
+            _enumerator = null;
+        });
+        _queue.CompleteAdding();
+    }
 
     // ---- Reading ----------------------------------------------------------------------------
 
@@ -174,7 +276,10 @@ public sealed class AudioService : IDisposable
                 {
                     bool isDefault = device.ID == defaultId;
                     bool muted = flow == DataFlow.Capture && isDefault && device.AudioEndpointVolume.Mute;
-                    list.Add(new AudioDevice(device.ID, device.FriendlyName, isDefault, muted));
+                    string id = device.ID;
+                    if (!_deviceNames.TryGetValue(id, out var name))
+                        _deviceNames[id] = name = device.FriendlyName;
+                    list.Add(new AudioDevice(id, name, isDefault, muted));
                 }
                 catch (Exception ex)
                 {
@@ -283,6 +388,8 @@ public sealed class AudioService : IDisposable
 
     private void ReleaseDevices()
     {
+        foreach (var app in Apps)
+            app.Controls.Clear(); // their sessions are about to go
         foreach (var session in _sessions)
         {
             try { session.Dispose(); } catch { /* already gone */ }

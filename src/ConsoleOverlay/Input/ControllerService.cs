@@ -52,6 +52,23 @@ public sealed class ControllerService : IDisposable
     private ControllerButtons _heldDirection;
     private long _nextRepeatAt;
 
+    private const long CaptureHoldMs = 1000;
+    private const long CaptureTimeoutMs = 10000;
+
+    /// <summary>A combo being recorded on the Settings page. Only touched on the poll thread after it is set.</summary>
+    private sealed class Capture
+    {
+        public required Action<ControllerButtons> Progress { get; init; }
+        public required Action<ControllerButtons?> Done { get; init; }
+        public bool Armed;           // everything was let go once, so the A press that started this doesn't count
+        public ControllerButtons Held;
+        public long HeldSince = -1;
+        public long LastChange = -1;
+        public volatile bool Cancelled;
+    }
+
+    private volatile Capture? _capture;
+
     public event Action? ComboPressed;
     public event Action<NavCommand>? Navigate;
 
@@ -79,6 +96,68 @@ public sealed class ControllerService : IDisposable
             _navigationEnabled = value;
             _heldDirection = ControllerButtons.None;
         }
+    }
+
+    /// <summary>
+    /// Records a new combo: waits until every button is let go, then for buttons held together for a second.
+    /// Navigation and the open combo are off meanwhile. Gives null after 10 seconds without one, or when cancelled.
+    /// Both callbacks run on the UI thread.
+    /// </summary>
+    public void BeginCapture(Action<ControllerButtons> progress, Action<ControllerButtons?> done)
+    {
+        CancelCapture();
+        _capture = new Capture { Progress = progress, Done = done };
+    }
+
+    public void CancelCapture()
+    {
+        if (_capture is { } capture)
+            capture.Cancelled = true;
+    }
+
+    private void HandleCapture(Capture capture, ControllerButtons held, long now)
+    {
+        if (capture.LastChange < 0)
+            capture.LastChange = now;
+
+        void Finish(ControllerButtons? result)
+        {
+            if (_capture == capture)
+                _capture = null;
+            Raise(() => capture.Done(result));
+        }
+
+        if (capture.Cancelled)
+        {
+            Finish(null);
+            return;
+        }
+
+        if (!capture.Armed)
+        {
+            if (held == ControllerButtons.None)
+            {
+                capture.Armed = true;
+                capture.LastChange = now;
+            }
+            else if (now - capture.LastChange > CaptureTimeoutMs)
+                Finish(null);
+            return;
+        }
+
+        if (held != capture.Held)
+        {
+            capture.Held = held;
+            capture.HeldSince = now;
+            capture.LastChange = now;
+            Raise(() => capture.Progress(held));
+            return;
+        }
+
+        if (held != ControllerButtons.None && now - capture.HeldSince >= CaptureHoldMs)
+            Finish(held);
+        else if (held == ControllerButtons.None && now - capture.LastChange > CaptureTimeoutMs)
+            Finish(null);
     }
 
     private void Run()
@@ -111,17 +190,27 @@ public sealed class ControllerService : IDisposable
                 _previous[i] = buttons;
 
                 var combo = Combo;
-                if (combo != ControllerButtons.None && (buttons & combo) == combo && (previous & combo) != combo)
+                if (_capture is null && combo != ControllerButtons.None && (buttons & combo) == combo && (previous & combo) != combo)
                     Raise(() => ComboPressed?.Invoke());
 
                 combined |= buttons;
                 pressedNow |= buttons & ~previous;
             }
 
-            if (_navigationEnabled)
+            var capturing = _capture;
+            if (capturing is not null)
+            {
+                HandleCapture(capturing, combined, now);
+                _heldDirection = ControllerButtons.None;
+            }
+            else if (_navigationEnabled)
                 HandleNavigation(combined, pressedNow, now);
 
-            int sleep = !anyConnected ? IdlePollMs : _navigationEnabled ? VisiblePollMs : HiddenPollMs;
+            // While recording a combo, keep polling even with no controller so the timeout and Esc still work.
+            int sleep = capturing is not null ? VisiblePollMs
+                : !anyConnected ? IdlePollMs
+                : _navigationEnabled ? VisiblePollMs
+                : HiddenPollMs;
             Thread.Sleep(sleep);
         }
     }

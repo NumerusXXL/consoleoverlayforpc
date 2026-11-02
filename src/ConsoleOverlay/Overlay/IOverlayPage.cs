@@ -34,4 +34,10 @@ internal interface IOverlayPage
 
     /// <summary>Handles a key. Returns false to let the overlay do its default.</summary>
     bool HandleKey(Key key, IInputElement? focused);
+
+    /// <summary>
+    /// Sees every key first, with modifiers, before it becomes a command (used to record a new shortcut).
+    /// Return true to swallow it.
+    /// </summary>
+    bool HandleRawKey(KeyEventArgs e) => false;
 }

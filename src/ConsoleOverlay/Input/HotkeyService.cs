@@ -49,6 +49,21 @@ public sealed class HotkeyService : IDisposable
         }
     }
 
+    /// <summary>Writes a shortcut the way <see cref="TryParse"/> reads it, for example "Ctrl+Alt+G".</summary>
+    public static string Format(ModifierKeys modifiers, Key key)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+        if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+        if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+        if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+        string name = key.ToString();
+        if (key >= Key.D0 && key <= Key.D9)
+            name = name[1..];
+        parts.Add(name);
+        return string.Join("+", parts);
+    }
+
     public static bool TryParse(string shortcut, out uint modifiers, out uint vk, out string? error)
     {
         modifiers = 0;
