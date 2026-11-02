@@ -51,6 +51,10 @@ public partial class OverlayWindow : Window
     private Page _settingsPage = null!;
     private SettingsPage _settings = null!;
     private SoundPage _sound = null!;
+    private ShortcutsPage _shortcuts = null!;
+
+    /// <summary>True while a dialog of ours (a file picker) is open: losing focus to it must not close the overlay.</summary>
+    public bool KeepOpen { get; private set; }
     private AllTabsPage _tabs = null!;
     private DiscordPage _discord = null!;
     private IOverlayPage? _activeLogic;
@@ -111,6 +115,11 @@ public partial class OverlayWindow : Window
         _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
         AddPage("All Tabs", "\uE7C4", _tabs);
 
+        _shortcuts = new ShortcutsPage(this);
+        _shortcuts.CloseThen += action => CloseThenRequested?.Invoke(action);
+        _shortcuts.KeepOpen += keep => KeepOpen = keep;
+        AddPage("Shortcuts", "\uE71D", _shortcuts);
+
         _sound = new SoundPage(this);
         AddPage("Sound", "\uE767", _sound);
 
@@ -125,7 +134,11 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>The Settings page needs the app to save, rebind and quit.</summary>
-    public void SetSettingsHost(ISettingsHost host) => _settings.SetHost(host);
+    public void SetSettingsHost(ISettingsHost host)
+    {
+        _settings.SetHost(host);
+        _shortcuts.SetHost(host);
+    }
 
     public void SignOutOfDiscord() => _discord.SignOut();
 

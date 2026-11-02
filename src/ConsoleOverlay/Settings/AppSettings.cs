@@ -49,6 +49,9 @@ public sealed class AppSettings
     /// <summary>Show a notification in the corner when Console Overlay starts.</summary>
     public bool StartupNotification { get; set; } = true;
 
+    /// <summary>Apps, games and links on the Shortcuts page, in order.</summary>
+    public List<LaunchShortcut> Shortcuts { get; set; } = [];
+
     public ControllerButtons ParseCombo(out List<string> unknown)
     {
         unknown = [];
@@ -62,6 +65,13 @@ public sealed class AppSettings
         }
         return result;
     }
+}
+
+/// <summary>A tile on the Shortcuts page. <see cref="Target"/> is a file path (exe, .lnk, .url) or a link.</summary>
+public sealed class LaunchShortcut
+{
+    public string Name { get; set; } = "";
+    public string Target { get; set; } = "";
 }
 
 /// <summary>Loads and saves settings as JSON in %APPDATA%\ConsoleOverlay\settings.json.</summary>
