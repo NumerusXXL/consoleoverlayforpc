@@ -65,7 +65,7 @@ internal sealed class ShortcutsPage : IOverlayPage
     public string Hint => _view switch
     {
         View.Tiles => "A open · X remove · B back to game · LB / RB other pages",
-        View.AppPicker => "A add · LT / RT jump between letters · B back",
+        View.AppPicker => "Type to search · A add · LT / RT jump between letters · B back",
         View.Link => "Type, or X paste · A save · B back",
         _ => "A select · B back",
     };
@@ -95,7 +95,9 @@ internal sealed class ShortcutsPage : IOverlayPage
 
     public UIElement? FirstFocus() => _view == View.Tiles
         ? _tiles.Children.OfType<Button>().Skip(Shortcuts.Count > 0 ? 1 : 0).FirstOrDefault() ?? _tiles.Children.OfType<Button>().FirstOrDefault()
-        : _list.Children.OfType<Control>().FirstOrDefault(c => c.Focusable);
+        : _view == View.AppPicker
+            ? (UIElement?)_results?.Children.OfType<Button>().FirstOrDefault() ?? _search
+            : _list.Children.OfType<Control>().FirstOrDefault(c => c.Focusable);
 
     public bool Handle(NavCommand command, IInputElement? focused)
     {
@@ -121,6 +123,11 @@ internal sealed class ShortcutsPage : IOverlayPage
                     return true;
                 }
                 break;
+
+            case View.AppPicker when command == NavCommand.Accept && focused == _search:
+                if (_results?.Children.OfType<Button>().FirstOrDefault() is { } top)
+                    Focus(top); // Enter in the search box goes to the best match; Enter again adds it
+                return true;
 
             case View.AppPicker when command is NavCommand.ColumnLeft or NavCommand.ColumnRight:
                 JumpLetter(focused, command == NavCommand.ColumnRight ? 1 : -1);
@@ -152,6 +159,8 @@ internal sealed class ShortcutsPage : IOverlayPage
         _tiles.Children.Clear();
         _list.Children.Clear();
         _linkName = _linkUrl = null;
+        _search = null;
+        _results = null;
 
         switch (view)
         {
@@ -339,27 +348,116 @@ internal sealed class ShortcutsPage : IOverlayPage
         _startMenu ??= ReadStartMenu();
         _list.Children.Add(Ui.Section(_resources, $"Apps and games ({_startMenu.Count})", first: true));
         if (_startMenu.Count == 0)
+        {
             _list.Children.Add(Ui.Note(_resources, "Nothing found in the Start menu. Use Browse for a file instead."));
+            return;
+        }
+
+        // Search: type anywhere on this view and it lands here; the list narrows as you type.
+        var search = new TextBox { Style = (Style)_resources.FindResource("FieldBox"), Tag = "search" };
+        var placeholder = new TextBlock
+        {
+            Text = "Search apps and games",
+            FontSize = 15,
+            Margin = new Thickness(17, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Foreground = (Brush)_resources.FindResource("SubtleTextBrush"),
+        };
+        var searchIcon = Ui.Icon(_resources, "\uE721", 14);
+        searchIcon.HorizontalAlignment = HorizontalAlignment.Right;
+        searchIcon.Margin = new Thickness(0, 0, 16, 0);
+        searchIcon.IsHitTestVisible = false;
+        searchIcon.Foreground = placeholder.Foreground;
+        var searchHost = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        searchHost.Children.Add(search);
+        searchHost.Children.Add(placeholder);
+        searchHost.Children.Add(searchIcon);
+        _list.Children.Add(searchHost);
+        _search = search;
+
+        _results = new StackPanel();
+        _list.Children.Add(_results);
+        search.TextChanged += (_, _) =>
+        {
+            placeholder.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            FillResults(search.Text.Trim());
+        };
+        FillResults("");
+    }
+
+    private TextBox? _search;
+    private StackPanel? _results;
+
+    private void FillResults(string query)
+    {
+        if (_results is null || _startMenu is null) return;
+        _results.Children.Clear();
+
+        IEnumerable<(string Name, string Path)> matches = _startMenu;
+        if (query.Length > 0)
+        {
+            // Names that start with it first, then names with a word that starts with it, then anything containing it.
+            matches = _startMenu
+                .Select(e => (Entry: e, Rank: Rank(e.Name, query)))
+                .Where(x => x.Rank >= 0)
+                .OrderBy(x => x.Rank)
+                .ThenBy(x => x.Entry.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Select(x => x.Entry);
+        }
 
         char? letter = null;
-        foreach (var (name, path) in _startMenu)
+        int count = 0;
+        foreach (var (name, path) in matches)
         {
             char first = char.ToUpperInvariant(name[0]);
             if (!char.IsLetter(first)) first = '#';
-            if (first != letter)
+            if (query.Length == 0 && first != letter)
             {
                 letter = first;
-                _list.Children.Add(Ui.Section(_resources, first.ToString(), first: false));
+                _results.Children.Add(Ui.Section(_resources, first.ToString(), first: false));
             }
-            var row = AddRow(name, null, () => Add(name, path), tag: first.ToString());
+            var row = Ui.Row(_resources, name, null, null, () => Add(name, path));
+            row.Tag = query.Length == 0 ? first.ToString() : "match";
             row.Padding = new Thickness(18, 10, 18, 10);
+            _results.Children.Add(row);
+            count++;
         }
+        if (count == 0)
+            _results.Children.Add(Ui.Note(_resources, $"Nothing called \"{query}\". Try Browse for a file instead."));
+    }
+
+    private static int Rank(string name, string query)
+    {
+        if (name.StartsWith(query, StringComparison.CurrentCultureIgnoreCase)) return 0;
+        int at = name.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
+        if (at < 0) return -1;
+        return char.IsLetterOrDigit(name[at - 1]) ? 2 : 1;
+    }
+
+    /// <summary>Typing a letter or digit while a row is focused goes to the search box.</summary>
+    public bool HandleRawKey(KeyEventArgs e)
+    {
+        if (_view != View.AppPicker || _search is null || Keyboard.FocusedElement == _search) return false;
+        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return false;
+        char? c = e.Key switch
+        {
+            >= Key.A and <= Key.Z => (char)('a' + (e.Key - Key.A)),
+            >= Key.D0 and <= Key.D9 when Keyboard.Modifiers == ModifierKeys.None => (char)('0' + (e.Key - Key.D0)),
+            >= Key.NumPad0 and <= Key.NumPad9 => (char)('0' + (e.Key - Key.NumPad0)),
+            _ => null,
+        };
+        if (c is null) return false;
+        _search.Text += c.Value;
+        _search.CaretIndex = _search.Text.Length;
+        Focus(_search);
+        return true;
     }
 
     /// <summary>LT / RT: to the first entry of the previous or next letter.</summary>
     private void JumpLetter(IInputElement? focused, int direction)
     {
-        var rows = _list.Children.OfType<Button>().ToList();
+        var rows = _results?.Children.OfType<Button>().ToList() ?? [];
         if (rows.Count == 0) return;
         int at = focused is Button button ? Math.Max(0, rows.IndexOf(button)) : 0;
         var starts = rows.Select((r, i) => (r, i)).Where(x => x.i == 0 || rows[x.i - 1].Tag as string != x.r.Tag as string).Select(x => x.i).ToList();

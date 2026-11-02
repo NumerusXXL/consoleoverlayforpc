@@ -45,7 +45,7 @@ If something goes wrong, the log is at `%APPDATA%\ConsoleOverlay\log.txt`. The l
 
 Everything works from the keyboard alone. As soon as you press a key, the hints at the bottom switch to keyboard keys.
 
-On the **Shortcuts** page, your own apps, games and links sit as tiles. A launches one (the overlay closes first), X removes it (press twice). The **Add** tile adds an app or game from the Start menu (Steam, Epic and other launchers put their games there; LT / RT jumps between letters), a link like `youtube.com` or `steam://`, or any file you browse to.
+On the **Shortcuts** page, your own apps, games and links sit as tiles. A launches one (the overlay closes first), X removes it (press twice). The **Add** tile adds an app or game from the Start menu (Steam, Epic and other launchers put their games there; type to search, or LT / RT to jump between letters), a link like `youtube.com` or `steam://`, or any file you browse to.
 
 On the **Sound** page:
 
