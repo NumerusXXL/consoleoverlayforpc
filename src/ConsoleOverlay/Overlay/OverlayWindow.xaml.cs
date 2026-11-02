@@ -49,6 +49,7 @@ public partial class OverlayWindow : Window
     private readonly System.Diagnostics.Stopwatch _stallClock = new();
     private Page _settingsPage = null!;
     private SettingsPage _settings = null!;
+    private SoundPage _sound = null!;
     private AllTabsPage _tabs = null!;
     private DiscordPage _discord = null!;
     private IOverlayPage? _activeLogic;
@@ -108,7 +109,8 @@ public partial class OverlayWindow : Window
         _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
         AddPage("All Tabs", "\uE7C4", _tabs);
 
-        AddPage("Sound", "\uE767", new SoundPage(this));
+        _sound = new SoundPage(this);
+        AddPage("Sound", "\uE767", _sound);
 
         _discord = new DiscordPage(this);
         _discord.CloseThen += action => CloseThenRequested?.Invoke(action);
@@ -477,6 +479,7 @@ public partial class OverlayWindow : Window
         _currentWindow = currentWindow;
         DeactivateLogic(); // reopened during the close animation: start fresh
         _tabs.SetWindows(windows, currentWindow);
+        _sound.Prefetch(currentWindow);
         UpdateClock();
         _clock.Start();
         _stallClock.Restart();

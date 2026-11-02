@@ -63,7 +63,8 @@ public sealed class AudioService : IDisposable
     private MMDevice? _output;
     private MMDevice? _input;
     private readonly List<AudioSessionControl> _sessions = [];
-    private readonly Dictionary<uint, string> _processNames = [];
+    private readonly Dictionary<uint, string> _processNames = [];   // looking these up is slow, and they don't change
+    private readonly Dictionary<string, string> _deviceNames = [];
 
     public IReadOnlyList<AudioDevice> Outputs { get; private set; } = [];
     public IReadOnlyList<AudioDevice> Inputs { get; private set; } = [];
@@ -105,18 +106,35 @@ public sealed class AudioService : IDisposable
             }
             var apps = ReadApps(firstProcessId);
 
-            // Something was changed while this ran: keep what the person just set, not what was read before it.
+            // Something was changed while this ran (or on the cached rows before it): keep what the person set,
+            // not what was read before it, and make sure Windows has it.
             if (version != _version)
             {
                 masterVolume = MasterVolume;
                 masterMuted = MasterMuted;
+                if (_output is not null)
+                {
+                    var endpoint = _output.AudioEndpointVolume;
+                    Try("set master volume", () =>
+                    {
+                        endpoint.MasterVolumeLevelScalar = masterVolume / 100f;
+                        endpoint.Mute = masterMuted;
+                    });
+                }
                 foreach (var app in apps)
                 {
-                    if (previousApps.FirstOrDefault(p => p.Key == app.Key) is { } previous)
+                    if (previousApps.FirstOrDefault(p => p.Key == app.Key) is not { } previous) continue;
+                    if (previous.Volume == app.Volume && previous.Muted == app.Muted) continue;
+                    app.Volume = previous.Volume;
+                    app.Muted = previous.Muted;
+                    Try($"set volume of {app.Name}", () =>
                     {
-                        app.Volume = previous.Volume;
-                        app.Muted = previous.Muted;
-                    }
+                        foreach (var control in app.Controls)
+                        {
+                            control.Volume = app.Volume / 100f;
+                            control.Mute = app.Muted;
+                        }
+                    });
                 }
             }
 
@@ -220,24 +238,25 @@ public sealed class AudioService : IDisposable
     });
 
     /// <summary>Lets go of every COM object. The next <see cref="Refresh"/> opens them again.</summary>
-    public void Release()
+    /// <summary>
+    /// Lets go of the devices and sessions. What was read last stays in the properties, so the page can show it
+    /// instantly next time while a fresh read runs.
+    /// </summary>
+    public void Release() => Post(() =>
     {
-        Apps = [];
-        HasOutput = false;
+        ReleaseDevices();
+        if (_processNames.Count > 300) _processNames.Clear();
+        if (_deviceNames.Count > 100) _deviceNames.Clear();
+    });
+
+    public void Dispose()
+    {
         Post(() =>
         {
             ReleaseDevices();
             _enumerator?.Dispose();
             _enumerator = null;
-            Apps = [];
-            HasOutput = false;
-            _processNames.Clear();
         });
-    }
-
-    public void Dispose()
-    {
-        Release();
         _queue.CompleteAdding();
     }
 
@@ -257,7 +276,10 @@ public sealed class AudioService : IDisposable
                 {
                     bool isDefault = device.ID == defaultId;
                     bool muted = flow == DataFlow.Capture && isDefault && device.AudioEndpointVolume.Mute;
-                    list.Add(new AudioDevice(device.ID, device.FriendlyName, isDefault, muted));
+                    string id = device.ID;
+                    if (!_deviceNames.TryGetValue(id, out var name))
+                        _deviceNames[id] = name = device.FriendlyName;
+                    list.Add(new AudioDevice(id, name, isDefault, muted));
                 }
                 catch (Exception ex)
                 {
@@ -366,6 +388,8 @@ public sealed class AudioService : IDisposable
 
     private void ReleaseDevices()
     {
+        foreach (var app in Apps)
+            app.Controls.Clear(); // their sessions are about to go
         foreach (var session in _sessions)
         {
             try { session.Dispose(); } catch { /* already gone */ }
