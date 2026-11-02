@@ -41,7 +41,6 @@ public partial class OverlayWindow : Window
     private Color PillColor = Color.FromRgb(0xF2, 0xF4, 0xF8);
     private static readonly Color PillInkColor = Color.FromRgb(0x0B, 0x0E, 0x16);
     private static readonly Color IconColor = Color.FromRgb(0x8A, 0x93, 0xA6);
-    private const double SnapshotBlurRadius = 26;
     private int _visibilityToken;
 
     private readonly List<Page> _pages = [];
@@ -77,6 +76,7 @@ public partial class OverlayWindow : Window
             // Free the snapshot, window previews and icons while hidden so the idle footprint stays small.
             _clock.Stop();
             Snapshot.Source = null;
+            SnapshotBlurred.Source = null;
             DeactivateLogic();
             _tabs.Clear();
         };
@@ -197,7 +197,13 @@ public partial class OverlayWindow : Window
         {
             DeactivateLogic();
             _activeLogic = current.Logic;
-            _activeLogic?.Activate(_currentWindow);
+            if (_activeLogic is { } logic)
+            {
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                logic.Activate(_currentWindow);
+                if (timer.ElapsedMilliseconds > 40)
+                    Log.Write($"Opening the {current.Name} page took {timer.ElapsedMilliseconds} ms.");
+            }
         }
 
         PageTitleText.Text = current.Name;
@@ -290,7 +296,7 @@ public partial class OverlayWindow : Window
     /// <summary>Whether to capture the screen at all before opening (not needed for the dark background).</summary>
     public bool WantsSnapshot => !Appearance.Is(_background, "Dark");
 
-    private double BlurRadius => Appearance.Is(_background, "Clear") ? 0 : SnapshotBlurRadius;
+    private double BlurredOpacity => Appearance.Is(_background, "Clear") ? 0 : 1;
 
     private void ApplyBackground()
     {
@@ -299,7 +305,8 @@ public partial class OverlayWindow : Window
         OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
         OpaqueBackdrop.BeginAnimation(OpacityProperty, null);
         OpaqueBackdrop.Opacity = 1;
-        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(BlurRadius, TimeSpan.FromMilliseconds(220)));
+        SnapshotBlurred.Visibility = Snapshot.Visibility;
+        SnapshotBlurred.BeginAnimation(OpacityProperty, new DoubleAnimation(BlurredOpacity, TimeSpan.FromMilliseconds(220)));
     }
 
     // ---- Input ------------------------------------------------------------------------------
@@ -447,7 +454,9 @@ public partial class OverlayWindow : Window
     {
         bool useSnapshot = !exclusiveMode && snapshot is not null && WantsSnapshot;
         Snapshot.Source = useSnapshot ? snapshot : null;
+        SnapshotBlurred.Source = useSnapshot ? ScreenCapture.Blur(snapshot!) : null;
         Snapshot.Visibility = useSnapshot ? Visibility.Visible : Visibility.Collapsed;
+        SnapshotBlurred.Visibility = Snapshot.Visibility;
         OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
 
         _currentWindow = currentWindow;
@@ -496,7 +505,7 @@ public partial class OverlayWindow : Window
 
         Root.BeginAnimation(OpacityProperty, null);
         Root.Opacity = 1;
-        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, BlurRadius, slow) { EasingFunction = ease });
+        SnapshotBlurred.BeginAnimation(OpacityProperty, new DoubleAnimation(0, BlurredOpacity, slow) { EasingFunction = ease });
         Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
         OpaqueBackdrop.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
 
@@ -537,7 +546,7 @@ public partial class OverlayWindow : Window
         PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });
         PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });
 
-        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, fast) { EasingFunction = ease });
+        SnapshotBlurred.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast) { EasingFunction = ease });
         Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
         PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
         PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(20, fast) { EasingFunction = ease });

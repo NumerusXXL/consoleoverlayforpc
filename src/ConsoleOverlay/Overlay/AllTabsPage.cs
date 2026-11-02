@@ -264,6 +264,28 @@ internal sealed class AllTabsPage : IOverlayPage
         Grid.SetColumn(title, 1);
         titleRow.Children.Add(title);
 
+        // A close button you can click; on the controller it's X (keyboard X or Delete) on the focused tile.
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var closeIcon = Ui.Icon(_window, "\uE711", 11);
+        closeIcon.HorizontalAlignment = HorizontalAlignment.Center;
+        var closeFill = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
+        var close = new Border
+        {
+            Width = 24,
+            Height = 24,
+            CornerRadius = new CornerRadius(12),
+            Margin = new Thickness(8, 0, 0, 0),
+            Background = closeFill,
+            Child = closeIcon,
+            Cursor = Cursors.Hand,
+            ToolTip = window.Handle == _currentWindow ? "Close this game (X, twice)" : "Close (X)",
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        close.MouseEnter += (_, _) => closeFill.Color = Color.FromArgb(0x55, 0xF0, 0x6A, 0x6A);
+        close.MouseLeave += (_, _) => closeFill.Color = Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF);
+        Grid.SetColumn(close, 2);
+        titleRow.Children.Add(close);
+
         string subtitleText = isCurrent
             ? (window.AppName is null ? "Current" : $"Current  ·  {window.AppName}")
             : window.AppName ?? " ";
@@ -289,6 +311,11 @@ internal sealed class AllTabsPage : IOverlayPage
             ToolTip = window.AppName is null ? window.Title : $"{window.Title}\n{window.AppName}",
         };
         var handle = window.Handle;
+        close.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            e.Handled = true; // don't also switch to the window
+            CloseWindow(handle);
+        };
         button.Click += (_, _) =>
         {
             if (handle == _currentWindow)
