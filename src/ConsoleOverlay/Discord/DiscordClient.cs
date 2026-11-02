@@ -83,6 +83,8 @@ internal sealed class DiscordClient
     private bool _speakingWanted;
     private bool _speakingSubscribed;
     private bool _refreshQueued;
+    // Why the last sign-in attempt failed. Kept across reconnects so reopening the overlay still says what went wrong.
+    private string? _signInProblem;
 
     public DiscordClient(Dispatcher dispatcher) => _dispatcher = dispatcher;
 
@@ -115,6 +117,7 @@ internal sealed class DiscordClient
 
         _clientId = clientId;
         _clientSecret = clientSecret;
+        _signInProblem = null;
         Disconnect(); // a different app means a different sign-in
         SetState(IsConfigured ? DiscordState.NotRunning : DiscordState.NotSetUp, null);
     }
@@ -165,6 +168,7 @@ internal sealed class DiscordClient
         catch (DiscordException ex)
         {
             Log.Write($"Discord: {ex.Message} (code {ex.Code})");
+            _signInProblem = ex.Message;
             Disconnect();
             SetState(DiscordState.Failed, ex.Message);
         }
@@ -226,13 +230,13 @@ internal sealed class DiscordClient
                 ["grant_type"] = "refresh_token",
                 ["refresh_token"] = refresh,
             });
-            if (refreshed is not null && await TryAuthenticateAsync(refreshed.AccessToken))
+            if (refreshed.Token is not null && await TryAuthenticateAsync(refreshed.Token.AccessToken))
                 return true;
         }
 
         if (!allowPrompt)
         {
-            SetState(DiscordState.NeedsAuthorization, null);
+            SetState(DiscordState.NeedsAuthorization, _signInProblem);
             return false;
         }
 
@@ -249,15 +253,18 @@ internal sealed class DiscordClient
         }
         catch (DiscordException ex)
         {
-            Log.Write($"Discord: authorization not given: {ex.Message}");
-            SetState(DiscordState.NeedsAuthorization, "Discord didn't give permission. Try again and click Authorize in Discord.");
+            Log.Write($"Discord: authorization not given (code {ex.Code}): {ex.Message}");
+            _signInProblem = $"Discord said no: \"{ex.Message}\". Try again and click Authorize in Discord.";
+            SetState(DiscordState.NeedsAuthorization, _signInProblem);
             return false;
         }
         catch (TimeoutException)
         {
-            SetState(DiscordState.NeedsAuthorization, "Nobody clicked Authorize in Discord in time. Try again.");
+            _signInProblem = "Nobody clicked Authorize in Discord in time. Try again.";
+            SetState(DiscordState.NeedsAuthorization, _signInProblem);
             return false;
         }
+        Log.Write("Discord: Authorize was clicked; exchanging the code for a sign-in.");
 
         var code = answer?["code"]?.GetValue<string>();
         if (code is null)
@@ -268,10 +275,31 @@ internal sealed class DiscordClient
             ["grant_type"] = "authorization_code",
             ["code"] = code,
             ["redirect_uri"] = RedirectUri,
-        }) ?? throw new DiscordException(0, "Discord didn't accept the Client Secret, or http://localhost isn't added as a Redirect in your Discord app (OAuth2 page).");
+        });
+        // A redirect that doesn't match the app's list is rejected before the code is used, so try once without it.
+        if (fresh.Token is null && fresh.Error?.Contains("redirect", StringComparison.OrdinalIgnoreCase) == true)
+            fresh = await ExchangeAsync(new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = code,
+            });
 
-        if (!await TryAuthenticateAsync(fresh.AccessToken))
-            throw new DiscordException(0, "Discord didn't accept the new sign-in.");
+        if (fresh.Token is null)
+        {
+            _signInProblem = $"You clicked Authorize, but Discord turned down the sign-in: {fresh.Error ?? "no answer"}. " +
+                "Check the Client Secret in the settings file and that http://localhost is a Redirect on your app's OAuth2 page, then reload settings and try again.";
+            SetState(DiscordState.NeedsAuthorization, _signInProblem);
+            return false;
+        }
+
+        if (!await TryAuthenticateAsync(fresh.Token.AccessToken))
+        {
+            _signInProblem = "Discord gave a sign-in but then didn't accept it. Try again; the log has details.";
+            SetState(DiscordState.NeedsAuthorization, _signInProblem);
+            return false;
+        }
+        _signInProblem = null;
+        Log.Write("Discord: signed in.");
         return true;
     }
 
@@ -291,7 +319,7 @@ internal sealed class DiscordClient
     }
 
     /// <summary>Trades a code or refresh token for an access token at Discord's OAuth2 endpoint, and saves it.</summary>
-    private async Task<DiscordToken?> ExchangeAsync(Dictionary<string, string> fields)
+    private async Task<(DiscordToken? Token, string? Error)> ExchangeAsync(Dictionary<string, string> fields)
     {
         fields["client_id"] = _clientId;
         fields["client_secret"] = _clientSecret;
@@ -302,12 +330,21 @@ internal sealed class DiscordClient
             if (!response.IsSuccessStatusCode)
             {
                 Log.Write($"Discord: token request failed ({(int)response.StatusCode}): {body}");
-                return null;
+                string? reason = null;
+                try
+                {
+                    var error = JsonNode.Parse(body);
+                    reason = error?["error_description"]?.ToString() ?? error?["error"]?.ToString();
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                }
+                return (null, reason ?? $"error {(int)response.StatusCode}");
             }
 
             var json = JsonNode.Parse(body);
             var access = json?["access_token"]?.GetValue<string>();
-            if (access is null) return null;
+            if (access is null) return (null, "no access token in Discord's answer");
             var token = new DiscordToken
             {
                 ClientId = _clientId,
@@ -316,12 +353,12 @@ internal sealed class DiscordClient
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(json?["expires_in"]?.GetValue<int>() ?? 3600),
             };
             DiscordTokenStore.Save(token);
-            return token;
+            return (token, null);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             Log.Write($"Discord: could not reach discord.com: {ex.Message}");
-            return null;
+            return (null, "couldn't reach discord.com");
         }
     }
 
