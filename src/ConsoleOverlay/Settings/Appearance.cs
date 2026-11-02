@@ -27,6 +27,13 @@ public static class Appearance
         ("Dark", "Dark"),
     ];
 
+    public static readonly (string Value, string Label)[] Sizes =
+    [
+        ("Standard", "Standard"),
+        ("Big", "Big (TV)"),
+        ("Huge", "Huge"),
+    ];
+
     public static readonly (string Value, string Label)[] ClockFormats =
     [
         ("System", "Like Windows"),

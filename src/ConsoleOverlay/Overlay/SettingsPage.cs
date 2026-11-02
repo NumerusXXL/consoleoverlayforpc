@@ -540,6 +540,8 @@ internal sealed class SettingsPage : IOverlayPage
         Header("Look", first: true);
         Choice("accent", "Accent color", "The focus ring and the current page in the dock",
             Appearance.Accents.Select(a => (a.Value, a.Label)).ToArray(), () => Settings.AccentColor, v => Settings.AccentColor = v);
+        Choice("size", "Size", "Big fits the screen, for playing from the couch",
+            Appearance.Sizes, () => Settings.UiSize, v => Settings.UiSize = v);
         Choice("background", "Background", "What you see behind the overlay",
             Appearance.Backgrounds, () => Settings.Background, v => Settings.Background = v);
         Choice("clock", "Clock", "The time at the top of every page",

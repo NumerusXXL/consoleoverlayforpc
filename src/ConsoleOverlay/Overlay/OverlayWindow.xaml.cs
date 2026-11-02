@@ -61,6 +61,8 @@ public partial class OverlayWindow : Window
     private int _selected;
     private IntPtr _currentWindow;
     private string _background = "Blur";
+    private string _uiSize = "Big";
+    private Native.RECT _monitor;
     private string _clockFormat = "System";
 
     public event Action? CloseRequested;
@@ -316,6 +318,8 @@ public partial class OverlayWindow : Window
         foreach (var page in _pages)
             AnimateDock(page, page == _pages[_selected]);
 
+        _uiSize = settings.UiSize;
+        if (IsVisible) ApplyScale();
         _background = settings.Background;
         _clockFormat = settings.ClockFormat;
         if (IsVisible)
@@ -373,10 +377,13 @@ public partial class OverlayWindow : Window
             hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bA\b", "Enter");
             hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bB\b", "Esc");
         }
-        if (PageHint.Text == hint) return;
-        PageHint.Text = hint;
+        if (hint == _shownHint) return;
+        _shownHint = hint;
+        HintChips.Fill(PageHint, this, hint);
         PageHint.BeginAnimation(OpacityProperty, new DoubleAnimation(0.2, 1, new Duration(TimeSpan.FromMilliseconds(200))));
     }
+
+    private string? _shownHint;
 
     /// <summary>The keyboard does everything the controller does, through the same commands.</summary>
     private static NavCommand? KeyToCommand(Key key) => key switch
@@ -504,6 +511,7 @@ public partial class OverlayWindow : Window
         OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
 
         _currentWindow = currentWindow;
+        _monitor = monitor;
         DeactivateLogic(); // reopened during the close animation: start fresh
         _tabs.SetWindows(windows, currentWindow);
         _sound.Prefetch(currentWindow);
@@ -517,6 +525,7 @@ public partial class OverlayWindow : Window
             Show();
 
         Native.SetWindowPos(Handle, Native.HWND_TOPMOST, monitor.Left, monitor.Top, monitor.Width, monitor.Height, Native.SWP_SHOWWINDOW);
+        ApplyScale();
         Activate();
         _selected = 0;
         SelectPage(0, focusFirst: true);
@@ -625,6 +634,27 @@ public partial class OverlayWindow : Window
         Root.BeginAnimation(OpacityProperty, fade);
     }
 
+    /// <summary>
+    /// Sizes everything for the screen, the way a console does for a TV: Big and Huge fit the overlay to the
+    /// screen's height, so it looks the same on a 1080p or 4K TV and is readable from the couch.
+    /// </summary>
+    private void ApplyScale()
+    {
+        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        double height = Math.Max(600, _monitor.Height / Math.Max(dpi, 0.5)); // in WPF units
+        double scale = _uiSize switch
+        {
+            "Standard" => 1.0,
+            "Huge" => height / 660,
+            _ => height / 760,
+        };
+        scale = Math.Clamp(scale, 1.0, 2.5);
+        ChromeScale.ScaleX = ChromeScale.ScaleY = scale;
+        _scale = scale * dpi;
+    }
+
+    private double _scale = 1;
+
     private readonly Dictionary<UIElement, DispatcherTimer> _cacheTimers = [];
 
     /// <summary>
@@ -634,7 +664,8 @@ public partial class OverlayWindow : Window
     private void CacheWhileMoving(UIElement element, TimeSpan duration)
     {
         if (RenderCapability.Tier >> 16 == 0) return; // in software drawing a cache only adds work
-        element.CacheMode ??= new BitmapCache { SnapsToDevicePixels = true };
+        // Rendered at the final on-screen size, so the cached picture isn't blurry when the UI is scaled up.
+        element.CacheMode ??= new BitmapCache { SnapsToDevicePixels = true, RenderAtScale = _scale };
         if (!_cacheTimers.TryGetValue(element, out var timer))
         {
             timer = new DispatcherTimer(DispatcherPriority.Background);

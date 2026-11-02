@@ -43,6 +43,9 @@ public sealed class AppSettings
     /// <summary>What shows behind the overlay: Blur (the game, blurred), Clear (the game, sharp) or Dark.</summary>
     public string Background { get; set; } = "Blur";
 
+    /// <summary>How big everything is: Standard (desk), Big (fits the screen, good for a TV) or Huge.</summary>
+    public string UiSize { get; set; } = "Big";
+
     /// <summary>Clock in the overlay: System (follows Windows), 24h or 12h.</summary>
     public string ClockFormat { get; set; } = "System";
 
