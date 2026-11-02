@@ -12,7 +12,8 @@
     <AssemblyName>ConsoleOverlay</AssemblyName>
     <RootNamespace>ConsoleOverlay</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.0</Version>
+    <!-- Release builds take the version from the git tag (v1.2.3). -->
+    <Version>1.0.0</Version>
     <!-- Lets the project compile on non-Windows machines (CI, containers). It still only runs on Windows. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Keep the idle footprint small. -->

@@ -10,8 +10,28 @@
     <SolidColorBrush x:Key="SelectedTextBrush" Color="#FF0B0E16" />
     <SolidColorBrush x:Key="DimBrush" Color="#80080A10" />
     <SolidColorBrush x:Key="OpaqueBackdropBrush" Color="#FF0B0D12" />
-    <SolidColorBrush x:Key="PageBrush" Color="#D110131A" />
-    <SolidColorBrush x:Key="DockBrush" Color="#EB14171F" />
+    <!-- The accent (focus ring, dock pill, section marker). Replaced at runtime from Settings › Appearance. -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#FFF2F4F8" />
+
+    <!-- Glass: see-through enough that the blurred game shows through, dark enough that text stays easy to read. -->
+    <LinearGradientBrush x:Key="GlassBrush" StartPoint="0,0" EndPoint="0.4,1">
+        <GradientStop Offset="0" Color="#B81B202B" />
+        <GradientStop Offset="1" Color="#C40D1017" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="GlassSheenBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#12FFFFFF" />
+        <GradientStop Offset="0.22" Color="#05FFFFFF" />
+        <GradientStop Offset="0.5" Color="#00FFFFFF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#3DFFFFFF" />
+        <GradientStop Offset="0.35" Color="#14FFFFFF" />
+        <GradientStop Offset="1" Color="#0AFFFFFF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="DockBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#C8232835" />
+        <GradientStop Offset="1" Color="#D8111419" />
+    </LinearGradientBrush>
     <SolidColorBrush x:Key="HairlineBrush" Color="#14FFFFFF" />
     <SolidColorBrush x:Key="FocusFillBrush" Color="#14FFFFFF" />
     <SolidColorBrush x:Key="TileBrush" Color="#FF262C3A" />
@@ -37,7 +57,7 @@
                     <Grid x:Name="Root">
                         <Border x:Name="Hover" Background="{StaticResource FocusFillBrush}" CornerRadius="12" Opacity="0" />
                         <Border x:Name="Fill" Background="{StaticResource FocusFillBrush}" CornerRadius="12" Opacity="0" />
-                        <Border x:Name="Ring" BorderBrush="{StaticResource TextBrush}" BorderThickness="2" CornerRadius="12" Opacity="0" />
+                        <Border x:Name="Ring" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="12" Opacity="0" />
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="Center" />
@@ -98,7 +118,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Grid>
-                        <Border x:Name="Ring" BorderBrush="{StaticResource TextBrush}" BorderThickness="2" CornerRadius="17" Opacity="0" />
+                        <Border x:Name="Ring" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="17" Opacity="0" />
                         <Border Margin="5" Background="{StaticResource TileBrush}" CornerRadius="14" />
                         <Border x:Name="Shine" Margin="5" Background="{StaticResource FocusFillBrush}" CornerRadius="14" Opacity="0" />
                         <ContentPresenter Margin="19,17" />
@@ -158,6 +178,61 @@
                     <Border Background="{TemplateBinding Background}" CornerRadius="22" Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A text field (Discord Client ID). Light ring while you type in it. -->
+    <Style x:Key="FieldBase" TargetType="Control">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Background" Value="#14FFFFFF" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="16,13" />
+        <Setter Property="FontSize" Value="15" />
+    </Style>
+
+    <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource FieldBase}">
+        <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderThickness" Value="2" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="FieldPasswordBox" TargetType="PasswordBox" BasedOn="{StaticResource FieldBase}">
+        <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderThickness" Value="2" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

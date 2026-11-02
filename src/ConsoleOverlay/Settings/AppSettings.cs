@@ -37,6 +37,21 @@ public sealed class AppSettings
     /// <summary>Client Secret of the same Discord app. It stays on this PC and is only sent to Discord.</summary>
     public string DiscordClientSecret { get; set; } = "";
 
+    /// <summary>Color of the focus ring and the current page's pill: White, Blue, Green, Purple, Orange or Pink.</summary>
+    public string AccentColor { get; set; } = "White";
+
+    /// <summary>What shows behind the overlay: Blur (the game, blurred), Clear (the game, sharp) or Dark.</summary>
+    public string Background { get; set; } = "Blur";
+
+    /// <summary>Clock in the overlay: System (follows Windows), 24h or 12h.</summary>
+    public string ClockFormat { get; set; } = "System";
+
+    /// <summary>Show a notification in the corner when Console Overlay starts.</summary>
+    public bool StartupNotification { get; set; } = true;
+
+    /// <summary>Apps, games and links on the Shortcuts page, in order.</summary>
+    public List<LaunchShortcut> Shortcuts { get; set; } = [];
+
     public ControllerButtons ParseCombo(out List<string> unknown)
     {
         unknown = [];
@@ -50,6 +65,13 @@ public sealed class AppSettings
         }
         return result;
     }
+}
+
+/// <summary>A tile on the Shortcuts page. <see cref="Target"/> is a file path (exe, .lnk, .url) or a link.</summary>
+public sealed class LaunchShortcut
+{
+    public string Name { get; set; } = "";
+    public string Target { get; set; } = "";
 }
 
 /// <summary>Loads and saves settings as JSON in %APPDATA%\ConsoleOverlay\settings.json.</summary>
