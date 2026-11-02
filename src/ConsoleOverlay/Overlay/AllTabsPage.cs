@@ -67,7 +67,10 @@ internal sealed class AllTabsPage : IOverlayPage
         _showTimer.Tick += (_, _) =>
         {
             _showTimer.Stop();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             ShowPreviews();
+            if (timer.ElapsedMilliseconds > 20)
+                Log.Write($"All Tabs: turning on {_tiles.Count} previews took {timer.ElapsedMilliseconds} ms.");
         };
         _fadeTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
         _fadeTimer.Tick += (_, _) => FadeStep();

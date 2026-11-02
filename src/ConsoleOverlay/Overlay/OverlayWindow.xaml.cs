@@ -46,6 +46,7 @@ public partial class OverlayWindow : Window
     private readonly List<Page> _pages = [];
     private readonly DispatcherTimer _clock;
     private readonly DispatcherTimer _stallWatch;
+    private readonly FrameMonitor _frames = new();
     private readonly System.Diagnostics.Stopwatch _stallClock = new();
     private Page _settingsPage = null!;
     private SettingsPage _settings = null!;
@@ -91,6 +92,7 @@ public partial class OverlayWindow : Window
             // Free the snapshot, window previews and icons while hidden so the idle footprint stays small.
             _clock.Stop();
             _stallWatch.Stop();
+            _frames.Stop();
             Snapshot.Source = null;
             SnapshotBlurred.Source = null;
             DeactivateLogic();
@@ -223,6 +225,7 @@ public partial class OverlayWindow : Window
             }
         }
 
+        _frames.Start($"{current.Name} (opening the page)");
         PageTitleText.Text = current.Name;
         ShowHint();
         PageScroller.ScrollToTop();
@@ -235,6 +238,7 @@ public partial class OverlayWindow : Window
             var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
             var slide = new TranslateTransform();
             PageHost.RenderTransform = slide;
+            CacheWhileMoving(PageHost, duration.TimeSpan);
             slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(direction * 48, 0, duration) { EasingFunction = ease });
             PageHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220))));
 
@@ -322,8 +326,9 @@ public partial class OverlayWindow : Window
         OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
         OpaqueBackdrop.BeginAnimation(OpacityProperty, null);
         OpaqueBackdrop.Opacity = 1;
-        SnapshotBlurred.Visibility = Snapshot.Visibility;
+        SnapshotBlurred.Visibility = useSnapshot ? Visibility.Visible : Visibility.Collapsed;
         SnapshotBlurred.BeginAnimation(OpacityProperty, new DoubleAnimation(BlurredOpacity, TimeSpan.FromMilliseconds(220)));
+        Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(useSnapshot && BlurredOpacity == 1 ? 0 : 1, TimeSpan.FromMilliseconds(220)));
     }
 
     // ---- Input ------------------------------------------------------------------------------
@@ -377,6 +382,15 @@ public partial class OverlayWindow : Window
     };
 
     private void Run(NavCommand command)
+    {
+        _frames.Start($"{_pages[_selected].Name} ({command})");
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        RunCore(command);
+        if (timer.ElapsedMilliseconds > 30)
+            Log.Write($"{command} on the {_pages[_selected].Name} page took {timer.ElapsedMilliseconds} ms.");
+    }
+
+    private void RunCore(NavCommand command)
     {
         if (_pages[_selected].Logic?.Handle(command, Keyboard.FocusedElement) == true)
             return;
@@ -525,11 +539,23 @@ public partial class OverlayWindow : Window
 
         Root.BeginAnimation(OpacityProperty, null);
         Root.Opacity = 1;
-        SnapshotBlurred.BeginAnimation(OpacityProperty, new DoubleAnimation(0, BlurredOpacity, slow) { EasingFunction = ease });
-        Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
+        int token = _visibilityToken;
+        var blurIn = new DoubleAnimation(0, BlurredOpacity, slow) { EasingFunction = ease };
+        blurIn.Completed += (_, _) =>
+        {
+            // Once the blurred copy covers it, stop drawing the sharp one underneath.
+            if (token == _visibilityToken && BlurredOpacity == 1 && Snapshot.Visibility == Visibility.Visible)
+                Snapshot.Visibility = Visibility.Hidden;
+        };
+        SnapshotBlurred.BeginAnimation(OpacityProperty, blurIn);
+        // The blurred copy already has the dimming baked in, so the full-screen dim layer is only drawn without it.
+        bool blurredShown = SnapshotBlurred.Visibility == Visibility.Visible && BlurredOpacity == 1;
+        Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, blurredShown ? 0 : 1, medium));
         OpaqueBackdrop.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
 
-        // The glass card rises and settles with a hint of overshoot.
+        // The glass card rises and settles with a hint of overshoot. Drawn from a cached picture while it moves,
+        // so its text isn't redrawn at a new size every frame.
+        CacheWhileMoving(PageCard, slow.TimeSpan + delayed);
         PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed });
         PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.94, 1, slow) { EasingFunction = settle, BeginTime = delayed });
         PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.94, 1, slow) { EasingFunction = settle, BeginTime = delayed });
@@ -566,6 +592,8 @@ public partial class OverlayWindow : Window
         PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });
         PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });
 
+        if (Snapshot.Visibility == Visibility.Hidden)
+            Snapshot.Visibility = Visibility.Visible;
         SnapshotBlurred.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast) { EasingFunction = ease });
         Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
         PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));
@@ -582,6 +610,31 @@ public partial class OverlayWindow : Window
             after?.Invoke();
         };
         Root.BeginAnimation(OpacityProperty, fade);
+    }
+
+    private readonly Dictionary<UIElement, DispatcherTimer> _cacheTimers = [];
+
+    /// <summary>
+    /// Draws an element from a bitmap while it slides or scales, instead of laying out and drawing all its text and
+    /// rows again every frame. Removed afterwards so text is crisp (ClearType) again.
+    /// </summary>
+    private void CacheWhileMoving(UIElement element, TimeSpan duration)
+    {
+        if (RenderCapability.Tier >> 16 == 0) return; // in software drawing a cache only adds work
+        element.CacheMode ??= new BitmapCache { SnapsToDevicePixels = true };
+        if (!_cacheTimers.TryGetValue(element, out var timer))
+        {
+            timer = new DispatcherTimer(DispatcherPriority.Background);
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                element.CacheMode = null;
+            };
+            _cacheTimers[element] = timer;
+        }
+        timer.Stop();
+        timer.Interval = duration + TimeSpan.FromMilliseconds(40);
+        timer.Start();
     }
 
     private void HideFromAltTab()

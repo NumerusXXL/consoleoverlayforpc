@@ -38,8 +38,14 @@ internal static class ScreenCapture
             image.Measure(new System.Windows.Size(width, height));
             image.Arrange(new Rect(0, 0, width, height));
 
+            // Dim it here too, so the overlay doesn't need a separate full-screen dim layer on top.
+            var dim = new DrawingVisual();
+            using (var dc = dim.RenderOpen())
+                dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromArgb(0x80, 0x08, 0x0A, 0x10)), null, new Rect(0, 0, width, height));
+
             var target = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             target.Render(image);
+            target.Render(dim);
             target.Freeze();
             return target;
         }

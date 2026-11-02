@@ -220,7 +220,10 @@ internal sealed class SoundPage : IOverlayPage
         {
             if (generation != _generation || !_active) return;
             _refreshing = false;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             Apply();
+            if (timer.ElapsedMilliseconds > 20)
+                Log.Write($"Sound: updating the rows took {timer.ElapsedMilliseconds} ms.");
             if (_refreshAgain)
             {
                 _refreshAgain = false;
