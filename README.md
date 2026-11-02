@@ -92,7 +92,7 @@ Discord only allows this for apps you registered yourself, so there is a one-tim
 3. In the menu on the left, open **OAuth2**.
 4. Copy the **Client ID**.
 5. Under **Client Secret**, click **Reset Secret** and copy the secret. Discord only shows it once, so paste it somewhere right away.
-6. Still on the OAuth2 page, under **Redirects**, click **Add Redirect**, type `http://localhost` and click **Save Changes**.
+6. Still on the OAuth2 page, under **Redirects**, click **Add Redirect**, type `http://localhost` and click **Save Changes**. Keep this as the **only** redirect: with none or more than one, Discord refuses with "Missing redirect_uri".
 7. In Console Overlay, right-click the tray icon, choose **Edit settings**, and paste both values:
    ```json
    "DiscordClientId": "123456789012345678",

@@ -248,15 +248,17 @@ internal sealed class DiscordClient
             answer = await SendAsync("AUTHORIZE", new JsonObject
             {
                 ["client_id"] = _clientId,
-                // Discord insists on it here too, and it must be one of the Redirects on the app's OAuth2 page.
-                ["redirect_uri"] = RedirectUri,
+                // No redirect_uri here: Discord refuses one in the RPC flow and instead uses the app's only Redirect.
+                // With none, or more than one, on the app's OAuth2 page it answers "Missing redirect_uri".
                 ["scopes"] = new JsonArray(Scopes.Select(s => (JsonNode)JsonValue.Create(s)!).ToArray()),
             }, timeout: TimeSpan.FromMinutes(5));
         }
         catch (DiscordException ex)
         {
             Log.Write($"Discord: authorization not given (code {ex.Code}): {ex.Message}");
-            _signInProblem = $"Discord said no: \"{ex.Message}\". Try again and click Authorize in Discord.";
+            _signInProblem = ex.Message.Contains("redirect", StringComparison.OrdinalIgnoreCase)
+                ? $"Discord said: \"{ex.Message}\". On your app's OAuth2 page in the Discord Developer Portal, keep exactly one Redirect: http://localhost. Save, then try again."
+                : $"Discord said no: \"{ex.Message}\". Try again and click Authorize in Discord.";
             SetState(DiscordState.NeedsAuthorization, _signInProblem);
             return false;
         }
