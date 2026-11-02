@@ -45,6 +45,8 @@ public partial class OverlayWindow : Window
 
     private readonly List<Page> _pages = [];
     private readonly DispatcherTimer _clock;
+    private readonly DispatcherTimer _stallWatch;
+    private readonly System.Diagnostics.Stopwatch _stallClock = new();
     private Page _settingsPage = null!;
     private SettingsPage _settings = null!;
     private AllTabsPage _tabs = null!;
@@ -68,6 +70,18 @@ public partial class OverlayWindow : Window
         _clock = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(10) };
         _clock.Tick += (_, _) => UpdateClock();
 
+        // Diagnostics for stutter reports: notes in the log when the UI thread was blocked while the overlay is open.
+        _stallWatch = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(100) };
+        _stallWatch.Tick += (_, _) =>
+        {
+            long gap = _stallClock.ElapsedMilliseconds;
+            _stallClock.Restart();
+            if (gap > 250)
+                Log.Write($"The overlay was busy for {gap - 100} ms on the {_pages[_selected].Name} page.");
+        };
+        // Tier 2 is full GPU drawing. Tier 0 means Windows makes WPF draw in software (remote desktop, old drivers), which is slow.
+        Log.Write($"Graphics: rendering tier {RenderCapability.Tier >> 16}.");
+
         SourceInitialized += (_, _) => HideFromAltTab();
         PreviewKeyDown += OnPreviewKeyDown;
         IsVisibleChanged += (_, _) =>
@@ -75,6 +89,7 @@ public partial class OverlayWindow : Window
             if (IsVisible) return;
             // Free the snapshot, window previews and icons while hidden so the idle footprint stays small.
             _clock.Stop();
+            _stallWatch.Stop();
             Snapshot.Source = null;
             SnapshotBlurred.Source = null;
             DeactivateLogic();
@@ -464,6 +479,8 @@ public partial class OverlayWindow : Window
         _tabs.SetWindows(windows, currentWindow);
         UpdateClock();
         _clock.Start();
+        _stallClock.Restart();
+        _stallWatch.Start();
 
         _visibilityToken++; // cancels a close animation that is still running
         if (!IsVisible)

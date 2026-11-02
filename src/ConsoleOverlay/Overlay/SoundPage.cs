@@ -39,6 +39,10 @@ internal sealed class SoundPage : IOverlayPage
     private readonly Dictionary<string, VolumeRow> _volumeRows = [];
     private string _layoutSignature = "";
     private uint _gameProcessId;
+    private bool _active;
+    private bool _refreshing;
+    private bool _refreshAgain;
+    private int _generation;
 
     public SoundPage(FrameworkElement resources)
     {
@@ -69,6 +73,7 @@ internal sealed class SoundPage : IOverlayPage
         if (gameWindow != IntPtr.Zero)
             Interop.Native.GetWindowThreadProcessId(gameWindow, out _gameProcessId);
         _layoutSignature = ""; // always rebuild on open
+        _active = true;
         Refresh();
         _poll.Start();
     }
@@ -77,6 +82,10 @@ internal sealed class SoundPage : IOverlayPage
     public void Deactivate()
     {
         _poll.Stop();
+        _active = false;
+        _refreshing = false;
+        _refreshAgain = false;
+        _generation++; // a refresh still running is thrown away
         _audio.Release();
         _devices.Children.Clear();
         _mixer.Children.Clear();
@@ -178,9 +187,31 @@ internal sealed class SoundPage : IOverlayPage
 
     // ---- Building ---------------------------------------------------------------------------
 
+    /// <summary>Reads Windows audio in the background, then updates the rows. Never blocks the UI.</summary>
     private void Refresh()
     {
-        _audio.Refresh(_gameProcessId);
+        if (_refreshing)
+        {
+            _refreshAgain = true; // one at a time; run again right after, so a change shows up at once
+            return;
+        }
+        _refreshing = true;
+        int generation = _generation;
+        _audio.Refresh(_gameProcessId, () => _resources.Dispatcher.BeginInvoke(() =>
+        {
+            if (generation != _generation || !_active) return;
+            _refreshing = false;
+            Apply();
+            if (_refreshAgain)
+            {
+                _refreshAgain = false;
+                Refresh();
+            }
+        }));
+    }
+
+    private void Apply()
+    {
 
         // Rebuild only when the rows themselves change, so focus stays put while values update in place.
         string signature = string.Join("|",
@@ -202,8 +233,17 @@ internal sealed class SoundPage : IOverlayPage
 
         string? focusedKey = (Keyboard.FocusedElement as Button)?.Tag as string;
         bool hadFocus = Keyboard.FocusedElement is DependencyObject d0 && (IsInside(d0, _devices) || IsInside(d0, _mixer));
+        bool firstLoad = _volumeRows.Count == 0 && _devices.Children.Count == 0;
         _layoutSignature = signature;
         Build();
+
+        // The page opened before the audio was read; now there is something to focus.
+        if (firstLoad && !hadFocus && FirstFocus() is { } first)
+        {
+            first.Focus();
+            Keyboard.Focus(first);
+            return;
+        }
 
         if (hadFocus && focusedKey is not null)
         {
