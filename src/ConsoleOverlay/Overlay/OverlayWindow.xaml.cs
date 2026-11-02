@@ -38,7 +38,7 @@ public partial class OverlayWindow : Window
         public SolidColorBrush DockInk { get; set; } = null!;
     }
 
-    private static readonly Color PillColor = Color.FromRgb(0xF2, 0xF4, 0xF8);
+    private Color PillColor = Color.FromRgb(0xF2, 0xF4, 0xF8);
     private static readonly Color PillInkColor = Color.FromRgb(0x0B, 0x0E, 0x16);
     private static readonly Color IconColor = Color.FromRgb(0x8A, 0x93, 0xA6);
     private const double SnapshotBlurRadius = 26;
@@ -47,19 +47,19 @@ public partial class OverlayWindow : Window
     private readonly List<Page> _pages = [];
     private readonly DispatcherTimer _clock;
     private Page _settingsPage = null!;
+    private SettingsPage _settings = null!;
     private AllTabsPage _tabs = null!;
     private DiscordPage _discord = null!;
     private IOverlayPage? _activeLogic;
     private int _selected;
     private IntPtr _currentWindow;
+    private string _background = "Blur";
+    private string _clockFormat = "System";
 
     public event Action? CloseRequested;
     public event Action<IntPtr>? SwitchToWindowRequested;
     /// <summary>Close the overlay without giving focus back to the game, then run the action.</summary>
     public event Action<Action>? CloseThenRequested;
-    public event Action? EditSettingsRequested;
-    public event Action? ReloadSettingsRequested;
-    public event Action? ExitRequested;
 
     public OverlayWindow()
     {
@@ -97,12 +97,29 @@ public partial class OverlayWindow : Window
 
         _discord = new DiscordPage(this);
         _discord.CloseThen += action => CloseThenRequested?.Invoke(action);
-        _discord.EditSettings += () => EditSettingsRequested?.Invoke();
-        _discord.ReloadSettings += () => ReloadSettingsRequested?.Invoke();
+        _discord.OpenSettings += () => OpenSettingsSection("discord");
         AddPage("Discord", "\uE8BD", _discord);
 
-        _settingsPage = AddPage("Settings", "\uE9E9", "A select · B back to game · LB / RB other pages", new StackPanel(), null);
-        UpdateSettings(new AppSettings());
+        _settings = new SettingsPage(this);
+        _settings.CloseThen += action => CloseThenRequested?.Invoke(action);
+        _settingsPage = AddPage("Settings", "\uE713", _settings);
+    }
+
+    /// <summary>The Settings page needs the app to save, rebind and quit.</summary>
+    public void SetSettingsHost(ISettingsHost host) => _settings.SetHost(host);
+
+    public void SignOutOfDiscord() => _discord.SignOut();
+
+    /// <summary>Opens the Settings page (from the tray menu).</summary>
+    public void ShowSettings()
+    {
+        if (IsVisible) SelectPage(_pages.IndexOf(_settingsPage), focusFirst: true);
+    }
+
+    private void OpenSettingsSection(string section)
+    {
+        SelectPage(_pages.IndexOf(_settingsPage), focusFirst: true);
+        _settings.ShowSection(section, focusDetail: true);
     }
 
     private Page AddPage(string name, string icon, IOverlayPage logic)
@@ -189,14 +206,17 @@ public partial class OverlayWindow : Window
 
         if (previous != _selected)
         {
-            // Slide the page in from the side it came from.
-            double from = (_selected > previous ? 1 : -1) * 40;
-            var duration = new Duration(TimeSpan.FromMilliseconds(240));
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            // Slide the page in from the side it came from, decelerating smoothly; the title follows a beat later.
+            double direction = _selected > previous ? 1 : -1;
+            var duration = new Duration(TimeSpan.FromMilliseconds(340));
+            var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
             var slide = new TranslateTransform();
             PageHost.RenderTransform = slide;
-            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(from, 0, duration) { EasingFunction = ease });
-            PageHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, duration));
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(direction * 48, 0, duration) { EasingFunction = ease });
+            PageHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220))));
+
+            TitleOffset.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(direction * 16, 0, duration) { EasingFunction = ease });
+            PageTitleText.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(260))));
         }
 
         if (focusFirst)
@@ -211,10 +231,13 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>The current page's dock icon widens into a light pill and its name slides in.</summary>
-    private static void AnimateDock(Page page, bool selected)
+    private void AnimateDock(Page page, bool selected)
     {
-        var duration = new Duration(TimeSpan.FromMilliseconds(220));
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var duration = new Duration(TimeSpan.FromMilliseconds(selected ? 360 : 240));
+        // The pill widens with a small overshoot, like it has a bit of weight; closing ones just settle.
+        IEasingFunction ease = selected
+            ? new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 }
+            : new QuinticEase { EasingMode = EasingMode.EaseOut };
 
         page.DockFill.BeginAnimation(SolidColorBrush.ColorProperty,
             new ColorAnimation(selected ? PillColor : Color.FromArgb(0, PillColor.R, PillColor.G, PillColor.B), duration) { EasingFunction = ease });
@@ -223,7 +246,7 @@ public partial class OverlayWindow : Window
         page.DockButton.BeginAnimation(Control.PaddingProperty,
             new ThicknessAnimation(selected ? new Thickness(14, 0, 18, 0) : new Thickness(13, 0, 13, 0), duration) { EasingFunction = ease });
         page.DockLabel.BeginAnimation(FrameworkElement.MaxWidthProperty,
-            new DoubleAnimation(selected ? 160 : 0, duration) { EasingFunction = ease });
+            new DoubleAnimation(selected ? 160 : 0, duration) { EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut } });
         page.DockLabel.BeginAnimation(FrameworkElement.MarginProperty,
             new ThicknessAnimation(selected ? new Thickness(8, 0, 0, 0) : new Thickness(0), duration) { EasingFunction = ease });
         page.DockLabel.BeginAnimation(UIElement.OpacityProperty,
@@ -243,36 +266,41 @@ public partial class OverlayWindow : Window
 
     // ---- Settings ---------------------------------------------------------------------------
 
-    /// <summary>Shows the current settings. Editing in the overlay itself arrives in step 4.</summary>
+    /// <summary>Applies settings that change how the overlay looks, and refreshes the pages that show them.</summary>
     public void UpdateSettings(AppSettings settings)
     {
         _discord.UpdateSettings(settings);
 
-        var panel = _settingsPage.Content;
-        panel.Children.Clear();
+        PillColor = Appearance.AccentColor(settings.AccentColor);
+        Resources["AccentBrush"] = new SolidColorBrush(PillColor);
+        foreach (var page in _pages)
+            AnimateDock(page, page == _pages[_selected]);
 
-        panel.Children.Add(new TextBlock { Text = "Controls", Style = (Style)FindResource("SectionLabel") });
-        panel.Children.Add(Row("Open with controller", "Hold these buttons together", string.Join(" + ", settings.ControllerCombo), () => EditSettingsRequested?.Invoke()));
-        panel.Children.Add(Row("Open with keyboard", "Works from any app", settings.Hotkey, () => EditSettingsRequested?.Invoke()));
+        _background = settings.Background;
+        _clockFormat = settings.ClockFormat;
+        if (IsVisible)
+        {
+            UpdateClock();
+            ApplyBackground();
+        }
 
-        panel.Children.Add(new TextBlock { Text = "Games", Style = (Style)FindResource("SectionLabel"), Margin = new Thickness(2, 18, 0, 10) });
-        panel.Children.Add(Row("Exclusive fullscreen games", "What happens when a game doesn't allow overlays",
-            settings.ExclusiveFullscreenFallback ? "Minimize and open" : "Don't open", () => EditSettingsRequested?.Invoke()));
-
-        panel.Children.Add(new TextBlock { Text = "Discord", Style = (Style)FindResource("SectionLabel"), Margin = new Thickness(2, 18, 0, 10) });
-        bool discordSet = settings.DiscordClientId.Trim().Length > 0 && settings.DiscordClientSecret.Trim().Length > 0;
-        panel.Children.Add(Row("Discord app", "Your Client ID and Client Secret, for voice controls",
-            discordSet ? "Set" : "Not set", () => EditSettingsRequested?.Invoke()));
-
-        panel.Children.Add(new TextBlock { Text = "App", Style = (Style)FindResource("SectionLabel"), Margin = new Thickness(2, 18, 0, 10) });
-        panel.Children.Add(Row("Edit settings file", "Changing settings right here arrives in step 4", null, () => EditSettingsRequested?.Invoke()));
-        panel.Children.Add(Row("Reload settings", "Apply changes from the settings file", null, () => ReloadSettingsRequested?.Invoke()));
-        var quit = Row("Quit Console Overlay", null, null, () => ExitRequested?.Invoke());
-        quit.Foreground = (Brush)FindResource("DangerTextBrush");
-        panel.Children.Add(quit);
+        _settings.UpdateSettings();
     }
 
-    private Button Row(string title, string? hint, string? value, Action? onClick) => Ui.Row(this, title, hint, value, onClick);
+    /// <summary>Whether to capture the screen at all before opening (not needed for the dark background).</summary>
+    public bool WantsSnapshot => !Appearance.Is(_background, "Dark");
+
+    private double BlurRadius => Appearance.Is(_background, "Clear") ? 0 : SnapshotBlurRadius;
+
+    private void ApplyBackground()
+    {
+        bool useSnapshot = Snapshot.Source is not null && WantsSnapshot;
+        Snapshot.Visibility = useSnapshot ? Visibility.Visible : Visibility.Collapsed;
+        OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
+        OpaqueBackdrop.BeginAnimation(OpacityProperty, null);
+        OpaqueBackdrop.Opacity = 1;
+        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(BlurRadius, TimeSpan.FromMilliseconds(220)));
+    }
 
     // ---- Input ------------------------------------------------------------------------------
 
@@ -299,11 +327,13 @@ public partial class OverlayWindow : Window
         string hint = page.Logic?.Hint ?? page.Hint;
         if (_keyboardHints)
         {
-            hint = hint.Replace("LB / RB", "Q / E").Replace("LT / RT", "Tab");
+            hint = hint.Replace("LB / RB", "Q / E").Replace("LT / RT", "Tab").Replace("X paste", "Ctrl+V paste");
             hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bA\b", "Enter");
             hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bB\b", "Esc");
         }
+        if (PageHint.Text == hint) return;
         PageHint.Text = hint;
+        PageHint.BeginAnimation(OpacityProperty, new DoubleAnimation(0.2, 1, new Duration(TimeSpan.FromMilliseconds(200))));
     }
 
     /// <summary>The keyboard does everything the controller does, through the same commands.</summary>
@@ -368,6 +398,13 @@ public partial class OverlayWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // A page recording a new shortcut sees every key, Ctrl / Alt / Win included.
+        if (_pages[_selected].Logic?.HandleRawKey(e) == true)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Leave shortcuts with Ctrl / Alt / Windows alone (Shift is fine: Shift+Tab).
         if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0)
             return;
@@ -376,6 +413,17 @@ public partial class OverlayWindow : Window
         {
             _keyboardHints = true;
             ShowHint();
+        }
+
+        // In a text field, keys type. Only Enter (save), Esc (cancel) and up / down (leave the field) still navigate.
+        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase or PasswordBox)
+        {
+            if (e.Key is Key.Enter or Key.Escape or Key.Up or Key.Down)
+            {
+                Run(KeyToCommand(e.Key)!.Value);
+                e.Handled = true;
+            }
+            return;
         }
 
         if (KeyToCommand(e.Key) is { } command)
@@ -397,7 +445,7 @@ public partial class OverlayWindow : Window
     /// <summary>Shows the overlay covering one monitor (rectangle in physical pixels), always on All Tabs.</summary>
     internal void ShowOn(Native.RECT monitor, bool exclusiveMode, BitmapSource? snapshot, IReadOnlyList<OpenWindow> windows, IntPtr currentWindow)
     {
-        bool useSnapshot = !exclusiveMode && snapshot is not null;
+        bool useSnapshot = !exclusiveMode && snapshot is not null && WantsSnapshot;
         Snapshot.Source = useSnapshot ? snapshot : null;
         Snapshot.Visibility = useSnapshot ? Visibility.Visible : Visibility.Collapsed;
         OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
@@ -425,7 +473,13 @@ public partial class OverlayWindow : Window
         var date = now.ToString("dddd, d MMMM", CultureInfo.CurrentCulture);
         if (date.Length > 0)
             date = char.ToUpper(date[0], CultureInfo.CurrentCulture) + date[1..];
-        ClockText.Text = $"{now.ToString("t", CultureInfo.CurrentCulture)}  ·  {date}";
+        string time = _clockFormat switch
+        {
+            "24h" => now.ToString("HH:mm", CultureInfo.CurrentCulture),
+            "12h" => now.ToString("h:mm tt", CultureInfo.InvariantCulture),
+            _ => now.ToString("t", CultureInfo.CurrentCulture),
+        };
+        ClockText.Text = $"{time}  ·  {date}";
     }
 
     /// <summary>
@@ -434,24 +488,40 @@ public partial class OverlayWindow : Window
     /// </summary>
     private void AnimateIn()
     {
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var medium = new Duration(TimeSpan.FromMilliseconds(260));
-        var slow = new Duration(TimeSpan.FromMilliseconds(320));
-        var delayed = TimeSpan.FromMilliseconds(60);
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var settle = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 };
+        var medium = new Duration(TimeSpan.FromMilliseconds(280));
+        var slow = new Duration(TimeSpan.FromMilliseconds(420));
+        var delayed = TimeSpan.FromMilliseconds(50);
 
         Root.BeginAnimation(OpacityProperty, null);
         Root.Opacity = 1;
-        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, SnapshotBlurRadius, slow) { EasingFunction = ease });
+        SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, BlurRadius, slow) { EasingFunction = ease });
         Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
         OpaqueBackdrop.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium));
 
+        // The glass card rises and settles with a hint of overshoot.
         PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed });
-        PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.96, 1, slow) { EasingFunction = ease, BeginTime = delayed });
-        PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.96, 1, slow) { EasingFunction = ease, BeginTime = delayed });
-        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(28, 0, slow) { EasingFunction = ease, BeginTime = delayed });
+        PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.94, 1, slow) { EasingFunction = settle, BeginTime = delayed });
+        PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.94, 1, slow) { EasingFunction = settle, BeginTime = delayed });
+        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(36, 0, slow) { EasingFunction = ease, BeginTime = delayed });
 
         Dock.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed + delayed });
-        DockOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(40, 0, slow) { EasingFunction = ease, BeginTime = delayed + delayed });
+        DockOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(48, 0, slow) { EasingFunction = settle, BeginTime = delayed + delayed });
+
+        // Dock icons pop in one after another.
+        for (int i = 0; i < _pages.Count; i++)
+        {
+            var button = _pages[i].DockButton;
+            var pop = new ScaleTransform(0.6, 0.6);
+            button.RenderTransformOrigin = new Point(0.5, 0.5);
+            button.RenderTransform = pop;
+            var begin = TimeSpan.FromMilliseconds(130 + i * 45);
+            var popDuration = new Duration(TimeSpan.FromMilliseconds(360));
+            var popEase = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 };
+            pop.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.6, 1, popDuration) { BeginTime = begin, EasingFunction = popEase });
+            pop.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.6, 1, popDuration) { BeginTime = begin, EasingFunction = popEase });
+        }
     }
 
     /// <summary>
@@ -463,7 +533,9 @@ public partial class OverlayWindow : Window
         int token = ++_visibilityToken;
         _tabs.HidePreviewsNow(); // Windows draws them on top, so they wouldn't fade with the rest
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
-        var fast = new Duration(TimeSpan.FromMilliseconds(170));
+        var fast = new Duration(TimeSpan.FromMilliseconds(180));
+        PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });
+        PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });
 
         SnapshotBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(0, fast) { EasingFunction = ease });
         Dim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, fast));

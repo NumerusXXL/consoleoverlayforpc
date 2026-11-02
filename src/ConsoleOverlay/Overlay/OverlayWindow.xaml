@@ -23,25 +23,29 @@
         </Image>
         <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" Opacity="0" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
 
-        <!-- Page card -->
-        <Border x:Name="PageCard"
-                Width="880"
-                Margin="0,56,0,112"
-                HorizontalAlignment="Center"
-                Background="{StaticResource PageBrush}"
-                BorderBrush="{StaticResource HairlineBrush}"
-                BorderThickness="1"
-                CornerRadius="26"
-                Padding="32,28,32,22"
-                Opacity="0"
-                RenderTransformOrigin="0.5,0.5">
-            <Border.RenderTransform>
+        <!-- Page card: frosted glass. A soft shadow, a see-through tint over the blurred game, a light sheen at the
+             top and a hairline edge that is brighter on top, like light catching the rim of a pane. -->
+        <Grid x:Name="PageCard"
+              Width="880"
+              Margin="0,56,0,112"
+              HorizontalAlignment="Center"
+              Opacity="0"
+              RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform x:Name="PageScale" />
                     <TranslateTransform x:Name="PageOffset" />
                 </TransformGroup>
-            </Border.RenderTransform>
-            <Grid>
+            </Grid.RenderTransform>
+            <Border CornerRadius="26" Background="#59000000" Margin="0,6,0,-6">
+                <Border.Effect>
+                    <BlurEffect Radius="28" RenderingBias="Performance" />
+                </Border.Effect>
+            </Border>
+            <Border CornerRadius="26" Background="{StaticResource GlassBrush}" />
+            <Border CornerRadius="26" Background="{StaticResource GlassSheenBrush}" />
+            <Border CornerRadius="26" BorderBrush="{StaticResource GlassEdgeBrush}" BorderThickness="1" />
+            <Grid Margin="32,28,32,22">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -49,7 +53,11 @@
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Margin="0,0,0,22" LastChildFill="False">
-                    <TextBlock x:Name="PageTitleText" DockPanel.Dock="Left" Style="{StaticResource PageTitle}" />
+                    <TextBlock x:Name="PageTitleText" DockPanel.Dock="Left" Style="{StaticResource PageTitle}">
+                        <TextBlock.RenderTransform>
+                            <TranslateTransform x:Name="TitleOffset" />
+                        </TextBlock.RenderTransform>
+                    </TextBlock>
                     <TextBlock x:Name="ClockText" DockPanel.Dock="Right" VerticalAlignment="Bottom" Margin="0,0,0,4"
                                FontSize="14" Foreground="{StaticResource SubtleTextBrush}" />
                 </DockPanel>
@@ -60,7 +68,7 @@
 
                 <TextBlock Grid.Row="2" x:Name="PageHint" Margin="2,16,0,0" Style="{StaticResource HintText}" />
             </Grid>
-        </Border>
+        </Grid>
 
         <!-- Dock -->
         <Border x:Name="Dock"
@@ -68,7 +76,7 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Bottom"
                 Background="{StaticResource DockBrush}"
-                BorderBrush="{StaticResource HairlineBrush}"
+                BorderBrush="{StaticResource GlassEdgeBrush}"
                 BorderThickness="1"
                 CornerRadius="30"
                 Padding="8"

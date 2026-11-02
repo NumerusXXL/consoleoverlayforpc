@@ -41,6 +41,19 @@ internal static class DiscordTokenStore
         }
     }
 
+    public static void Delete()
+    {
+        try
+        {
+            File.Delete(FilePath);
+            Log.Write("Discord: signed out.");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Discord: could not delete the saved sign-in: {ex.Message}");
+        }
+    }
+
     public static void Save(DiscordToken token)
     {
         try

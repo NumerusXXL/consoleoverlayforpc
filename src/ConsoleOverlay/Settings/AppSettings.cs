@@ -37,6 +37,18 @@ public sealed class AppSettings
     /// <summary>Client Secret of the same Discord app. It stays on this PC and is only sent to Discord.</summary>
     public string DiscordClientSecret { get; set; } = "";
 
+    /// <summary>Color of the focus ring and the current page's pill: White, Blue, Green, Purple, Orange or Pink.</summary>
+    public string AccentColor { get; set; } = "White";
+
+    /// <summary>What shows behind the overlay: Blur (the game, blurred), Clear (the game, sharp) or Dark.</summary>
+    public string Background { get; set; } = "Blur";
+
+    /// <summary>Clock in the overlay: System (follows Windows), 24h or 12h.</summary>
+    public string ClockFormat { get; set; } = "System";
+
+    /// <summary>Show a notification in the corner when Console Overlay starts.</summary>
+    public bool StartupNotification { get; set; } = true;
+
     public ControllerButtons ParseCombo(out List<string> unknown)
     {
         unknown = [];

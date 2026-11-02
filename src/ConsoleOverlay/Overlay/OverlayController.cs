@@ -96,7 +96,7 @@ public sealed class OverlayController
         var monitor = GetMonitorRect(foreground);
         Log.Write($"Opening over {GetProcessName(foreground) ?? "desktop"} on monitor {monitor.Left},{monitor.Top} {monitor.Width}x{monitor.Height}, exclusive={exclusive}.");
         // Take the snapshot before anything of ours is on screen. Exclusive fullscreen games can't be captured.
-        var snapshot = exclusive ? null : ScreenCapture.Capture(monitor);
+        var snapshot = exclusive || !_window.WantsSnapshot ? null : ScreenCapture.Capture(monitor);
         var windows = OpenWindows.List();
         _window.ShowOn(monitor, exclusive, snapshot, windows, foreground);
         ForceForeground(_window.Handle);

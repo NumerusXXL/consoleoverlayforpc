@@ -1,0 +1,68 @@
+name: Release
+
+# Push a tag like v1.0.0 to publish a release with downloadable builds:
+#   git tag v1.0.0 && git push origin v1.0.0
+# "Run workflow" on the Actions tab builds the same files without publishing a release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; else v="1.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      # One file that runs on any Windows 10/11 PC, nothing else to install.
+      - name: Publish standalone
+        run: >
+          dotnet publish src/ConsoleOverlay/ConsoleOverlay.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none -p:Version=${{ steps.version.outputs.version }} -o out/standalone
+
+      # Much smaller, but needs the .NET 8 Desktop Runtime installed.
+      - name: Publish small
+        run: >
+          dotnet publish src/ConsoleOverlay/ConsoleOverlay.csproj -c Release -r win-x64 --self-contained false
+          -p:PublishSingleFile=true -p:DebugType=none -p:Version=${{ steps.version.outputs.version }} -o out/small
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path out/standalone/* -DestinationPath "ConsoleOverlay-$v-win-x64.zip"
+          Compress-Archive -Path out/small/* -DestinationPath "ConsoleOverlay-$v-win-x64-needs-dotnet.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ConsoleOverlay-release-${{ steps.version.outputs.version }}
+          path: ConsoleOverlay-*.zip
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Console Overlay ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: ConsoleOverlay-*.zip
+          body: |
+            **Download `ConsoleOverlay-${{ steps.version.outputs.version }}-win-x64.zip`**, unzip it anywhere and run `ConsoleOverlay.exe`. It waits in the system tray.
+            Open it with **View + Menu** on a controller or **Ctrl+Alt+G**, and change both in Settings.
+
+            The `needs-dotnet` zip is much smaller but needs the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
+
+            Windows may warn that the app is from an unknown publisher (it isn't code-signed). Click **More info › Run anyway**.
