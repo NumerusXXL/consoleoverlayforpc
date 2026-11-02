@@ -110,7 +110,7 @@ public partial class OverlayWindow : Window
         var page = AddPage(name, icon, logic.Hint, logic.Content, logic);
         logic.HintChanged += () =>
         {
-            if (_pages[_selected] == page) PageHint.Text = logic.Hint;
+            if (_pages[_selected] == page) ShowHint();
         };
         return page;
     }
@@ -184,7 +184,7 @@ public partial class OverlayWindow : Window
         }
 
         PageTitleText.Text = current.Name;
-        PageHint.Text = current.Logic?.Hint ?? current.Hint;
+        ShowHint();
         PageScroller.ScrollToTop();
 
         if (previous != _selected)
@@ -276,8 +276,53 @@ public partial class OverlayWindow : Window
 
     // ---- Input ------------------------------------------------------------------------------
 
+    private bool _keyboardHints;
+
     /// <summary>Handles a controller command while the overlay is open.</summary>
     public void Navigate(NavCommand command)
+    {
+        if (_keyboardHints)
+        {
+            _keyboardHints = false;
+            ShowHint();
+        }
+        Run(command);
+    }
+
+    /// <summary>
+    /// Shows the current page's button hints, written for whatever was used last: the controller, or the keyboard
+    /// (Enter for A, Esc for B, Q / E for LB / RB, Tab for LT / RT).
+    /// </summary>
+    private void ShowHint()
+    {
+        var page = _pages[_selected];
+        string hint = page.Logic?.Hint ?? page.Hint;
+        if (_keyboardHints)
+        {
+            hint = hint.Replace("LB / RB", "Q / E").Replace("LT / RT", "Tab");
+            hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bA\b", "Enter");
+            hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bB\b", "Esc");
+        }
+        PageHint.Text = hint;
+    }
+
+    /// <summary>The keyboard does everything the controller does, through the same commands.</summary>
+    private static NavCommand? KeyToCommand(Key key) => key switch
+    {
+        Key.Up => NavCommand.Up,
+        Key.Down => NavCommand.Down,
+        Key.Left => NavCommand.Left,
+        Key.Right => NavCommand.Right,
+        Key.Enter or Key.Space => NavCommand.Accept,
+        Key.Escape or Key.Back => NavCommand.Back,
+        Key.Q or Key.PageUp => NavCommand.PreviousTab,
+        Key.E or Key.PageDown => NavCommand.NextTab,
+        Key.X => NavCommand.Secondary,
+        Key.Y => NavCommand.Mute,
+        _ => null,
+    };
+
+    private void Run(NavCommand command)
     {
         if (_pages[_selected].Logic?.Handle(command, Keyboard.FocusedElement) == true)
             return;
@@ -323,27 +368,26 @@ public partial class OverlayWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_pages[_selected].Logic?.HandleKey(e.Key, Keyboard.FocusedElement) == true)
+        // Leave shortcuts with Ctrl / Alt / Windows alone (Shift is fine: Shift+Tab).
+        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0)
+            return;
+
+        if (!_keyboardHints)
         {
+            _keyboardHints = true;
+            ShowHint();
+        }
+
+        if (KeyToCommand(e.Key) is { } command)
+        {
+            Run(command);
             e.Handled = true;
             return;
         }
 
-        switch (e.Key)
-        {
-            case Key.Escape:
-                CloseRequested?.Invoke();
-                e.Handled = true;
-                break;
-            case Key.Q or Key.PageUp:
-                SelectPage(_selected - 1, focusFirst: true);
-                e.Handled = true;
-                break;
-            case Key.E or Key.PageDown:
-                SelectPage(_selected + 1, focusFirst: true);
-                e.Handled = true;
-                break;
-        }
+        // Extra keys a page understands (M to mute, Tab to switch column, Delete to close a window).
+        if (_pages[_selected].Logic?.HandleKey(e.Key, Keyboard.FocusedElement) == true)
+            e.Handled = true;
     }
 
     private void Backdrop_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => CloseRequested?.Invoke();

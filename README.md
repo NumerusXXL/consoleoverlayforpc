@@ -28,9 +28,12 @@ If something goes wrong, the log is at `%APPDATA%\ConsoleOverlay\log.txt`. The l
 |---|---|---|
 | Open / close | View + Menu (hold both) | Ctrl+Alt+G |
 | Move | D-pad or left stick | Arrow keys |
-| Select | A | Enter |
-| Close | B | Esc |
+| Select | A | Enter or Space |
+| Back / close | B | Esc or Backspace |
 | Switch tab | LB / RB | Q / E |
+| X and Y buttons | X / Y | X / Y |
+
+Everything works from the keyboard alone. As soon as you press a key, the hints at the bottom switch to keyboard keys.
 
 On the **Sound** page:
 
