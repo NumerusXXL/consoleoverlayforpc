@@ -40,10 +40,35 @@ public sealed class VoiceMember
     public bool ServerDeafened { get; init; }
 }
 
+public sealed record AudioDevice(string Id, string Name);
+
+/// <summary>Your Discord voice and audio settings.</summary>
+public sealed class VoiceSettings
+{
+    /// <summary>Microphone volume, 0 to 100.</summary>
+    public int InputVolume { get; set; } = 100;
+    /// <summary>Speaker / headphone volume, 0 to 200 (100 is normal).</summary>
+    public int OutputVolume { get; set; } = 100;
+    public bool PushToTalk { get; set; }
+    public bool NoiseSuppression { get; set; }
+    public bool EchoCancellation { get; set; }
+    public bool AutomaticGain { get; set; }
+    public string? InputDeviceId { get; set; }
+    public string? OutputDeviceId { get; set; }
+    public List<AudioDevice> InputDevices { get; set; } = [];
+    public List<AudioDevice> OutputDevices { get; set; } = [];
+}
+
+public sealed record DiscordServer(string Id, string Name);
+
+/// <summary>A voice channel you could join, and the names of who is in it right now.</summary>
+public sealed record JoinableChannel(string Id, string Name, List<string> People);
+
 public sealed class VoiceChannel
 {
     public required string Id { get; init; }
     public required string Name { get; init; }
+    public string? GuildId { get; init; }
     public string? GuildName { get; init; }
     public required List<VoiceMember> Members { get; init; }
 }
@@ -103,6 +128,7 @@ internal sealed class DiscordClient
     public string? Problem { get; private set; }
 
     public bool Muted { get; private set; }
+    public VoiceSettings Settings { get; } = new();
     public bool Deafened { get; private set; }
     public VoiceChannel? Channel { get; private set; }
     public string? SelfId { get; private set; }
@@ -448,6 +474,7 @@ internal sealed class DiscordClient
         {
             Id = id,
             Name = data["name"]?.GetValue<string>() is { Length: > 0 } name ? name : "Call",
+            GuildId = guildId,
             GuildName = guildId is null ? "Private call" : guildName,
             Members = members,
         };
@@ -513,12 +540,40 @@ internal sealed class DiscordClient
         }
     }
 
+    private DateTime _volumeChangedAt;
+
     private void ApplyVoiceSettings(JsonNode? settings)
     {
         if (settings is null) return;
         if (settings["mute"] is { } mute) Muted = mute.GetValue<bool>();
         if (settings["deaf"] is { } deaf) Deafened = deaf.GetValue<bool>();
+
+        var s = Settings;
+        // While a volume is being held left/right, Discord's answers lag behind; don't let them pull it back.
+        bool recentVolumeChange = DateTime.UtcNow - _volumeChangedAt < TimeSpan.FromSeconds(1);
+        if (settings["input"] is JsonObject input)
+        {
+            if (!recentVolumeChange && input["volume"] is { } v) s.InputVolume = (int)Math.Round(v.GetValue<double>());
+            if (input["device_id"] is { } d) s.InputDeviceId = d.ToString();
+            if (input["available_devices"] is JsonArray list) s.InputDevices = ReadDevices(list);
+        }
+        if (settings["output"] is JsonObject output)
+        {
+            if (!recentVolumeChange && output["volume"] is { } v) s.OutputVolume = (int)Math.Round(v.GetValue<double>());
+            if (output["device_id"] is { } d) s.OutputDeviceId = d.ToString();
+            if (output["available_devices"] is JsonArray list) s.OutputDevices = ReadDevices(list);
+        }
+        if (settings["mode"]?["type"] is { } mode) s.PushToTalk = mode.ToString() == "PUSH_TO_TALK";
+        if (settings["noise_suppression"] is { } ns) s.NoiseSuppression = ns.GetValue<bool>();
+        if (settings["echo_cancellation"] is { } ec) s.EchoCancellation = ec.GetValue<bool>();
+        if (settings["automatic_gain_control"] is { } agc) s.AutomaticGain = agc.GetValue<bool>();
     }
+
+    private static List<AudioDevice> ReadDevices(JsonArray list) =>
+        list.Select(d => (Id: d?["id"]?.ToString(), Name: d?["name"]?.ToString()))
+            .Where(d => d.Id is not null)
+            .Select(d => new AudioDevice(d.Id!, string.IsNullOrWhiteSpace(d.Name) ? "Device" : d.Name!))
+            .ToList();
 
     // ---- Actions (fire and forget from the UI; failures are logged) -------------------------
 
@@ -538,6 +593,105 @@ internal sealed class DiscordClient
     }
 
     public void LeaveChannel() => Run("SELECT_VOICE_CHANNEL", new JsonObject { ["channel_id"] = null });
+
+    /// <summary>Joins a voice channel, moving you out of the one you're in.</summary>
+    public void JoinChannel(string channelId) =>
+        Run("SELECT_VOICE_CHANNEL", new JsonObject { ["channel_id"] = channelId, ["force"] = true });
+
+    public void SetInputVolume(int volume)
+    {
+        Settings.InputVolume = Math.Clamp(volume, 0, 100);
+        _volumeChangedAt = DateTime.UtcNow;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["input"] = new JsonObject { ["volume"] = Settings.InputVolume } });
+    }
+
+    public void SetOutputVolume(int volume)
+    {
+        Settings.OutputVolume = Math.Clamp(volume, 0, 200);
+        _volumeChangedAt = DateTime.UtcNow;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["output"] = new JsonObject { ["volume"] = Settings.OutputVolume } });
+    }
+
+    public void SetPushToTalk(bool on)
+    {
+        Settings.PushToTalk = on;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["mode"] = new JsonObject { ["type"] = on ? "PUSH_TO_TALK" : "VOICE_ACTIVITY" } });
+    }
+
+    public void SetNoiseSuppression(bool on)
+    {
+        Settings.NoiseSuppression = on;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["noise_suppression"] = on });
+    }
+
+    public void SetEchoCancellation(bool on)
+    {
+        Settings.EchoCancellation = on;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["echo_cancellation"] = on });
+    }
+
+    public void SetAutomaticGain(bool on)
+    {
+        Settings.AutomaticGain = on;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["automatic_gain_control"] = on });
+    }
+
+    public void SetInputDevice(string id)
+    {
+        Settings.InputDeviceId = id;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["input"] = new JsonObject { ["device_id"] = id } });
+    }
+
+    public void SetOutputDevice(string id)
+    {
+        Settings.OutputDeviceId = id;
+        Run("SET_VOICE_SETTINGS", new JsonObject { ["output"] = new JsonObject { ["device_id"] = id } });
+    }
+
+    // ---- Browsing servers and channels ------------------------------------------------------
+
+    public async Task<List<DiscordServer>> GetServersAsync()
+    {
+        var data = await SendAsync("GET_GUILDS");
+        var list = new List<DiscordServer>();
+        foreach (var g in data?["guilds"]?.AsArray() ?? [])
+        {
+            var id = g?["id"]?.ToString();
+            if (id is null) continue;
+            var name = g?["name"]?.ToString() ?? "Server";
+            _guildNames[id] = name;
+            list.Add(new DiscordServer(id, name));
+        }
+        return list;
+    }
+
+    /// <summary>The voice channels of a server, with who is in each (read in parallel; servers have a handful).</summary>
+    public async Task<List<JoinableChannel>> GetVoiceChannelsAsync(string guildId)
+    {
+        var data = await SendAsync("GET_CHANNELS", new JsonObject { ["guild_id"] = guildId });
+        var voice = (data?["channels"]?.AsArray() ?? [])
+            .Where(c => c?["type"]?.GetValue<int>() is 2 or 13) // voice and stage channels
+            .Select(c => (Id: c!["id"]!.ToString(), Name: c["name"]?.ToString() ?? "Voice"))
+            .ToList();
+
+        var details = await Task.WhenAll(voice.Select(async c =>
+        {
+            try
+            {
+                var channel = await SendAsync("GET_CHANNEL", new JsonObject { ["channel_id"] = c.Id });
+                return (channel?["voice_states"]?.AsArray() ?? [])
+                    .Select(v => FirstNonEmpty(v?["nick"], v?["user"]?["global_name"], v?["user"]?["username"]) ?? "Someone")
+                    .ToList();
+            }
+            catch (DiscordException)
+            {
+                return [];
+            }
+        }));
+        return voice.Select((c, i) => new JoinableChannel(c.Id, c.Name, details[i])).ToList();
+    }
+
+    public string? ServerName(string guildId) => _guildNames.TryGetValue(guildId, out var name) ? name : null;
 
     public void SetUserVolume(VoiceMember member, int volume)
     {

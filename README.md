@@ -50,15 +50,20 @@ On the **All Tabs** page (opens first):
 
 Each tile shows a live preview of the window. If an app asks something when it closes (like "save changes?"), the overlay brings it to the front so you can answer.
 
-On the **Discord** page:
+On the **Discord** page (laid out like Discord on Xbox: you and a menu on the left, the picked view on the right):
+
+- **In this call**: everyone in your voice channel, with a ring around whoever is talking. A on someone opens their options: volume (0–200%), mute for me, reset volume.
+- **Join / Switch channel**: the voice channels of the server you're in and who is in each. A joins. **Other servers** lists all your servers.
+- **Voice & audio**: microphone and speaker volume, voice activity or push to talk, noise suppression, echo cancellation, automatic gain, microphone and output device.
 
 | | Controller | Keyboard |
 |---|---|---|
 | Mute your mic | X (anywhere on the page) | X |
-| Mute / unmute or use a row | A | Enter |
-| Mute someone for yourself | Y (or A) on them | M |
-| How loud you hear someone | Left / right on them | Left / right (or mouse wheel) |
-| Jump between you and the channel | LT / RT | Tab |
+| Select / toggle | A | Enter |
+| Mute the focused person (for you) or your mic | Y | M |
+| Change the focused volume | Left / right | Left / right (or mouse wheel) |
+| Go back a step | B | Esc or Backspace |
+| Jump between the menu and the view | LT / RT | Tab |
 
 Both the shortcut and the controller combo can be changed in the settings file.
 
