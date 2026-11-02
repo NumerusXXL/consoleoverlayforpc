@@ -87,8 +87,8 @@
         </Setter>
     </Style>
 
-    <!-- A window tile on the All Tabs page. Focus lifts the tile slightly and fades in a white ring.
-         The ScaleTransform lives inside the template so it can be animated. -->
+    <!-- A window tile on the All Tabs page. Focus fades in a white ring. The tile doesn't grow on focus because the
+         live window preview inside it is drawn by Windows at a fixed spot and wouldn't grow with it. -->
     <Style x:Key="TileButton" TargetType="Button">
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Foreground" Value="{StaticResource SoftTextBrush}" />
@@ -97,10 +97,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Grid RenderTransformOrigin="0.5,0.5">
-                        <Grid.RenderTransform>
-                            <ScaleTransform x:Name="Lift" ScaleX="1" ScaleY="1" />
-                        </Grid.RenderTransform>
+                    <Grid>
                         <Border x:Name="Ring" BorderBrush="{StaticResource TextBrush}" BorderThickness="2" CornerRadius="17" Opacity="0" />
                         <Border Margin="5" Background="{StaticResource TileBrush}" CornerRadius="14" />
                         <Border x:Name="Shine" Margin="5" Background="{StaticResource FocusFillBrush}" CornerRadius="14" Opacity="0" />
@@ -129,12 +126,6 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
-                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleX" To="1.04" Duration="0:0:0.18">
-                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
-                                        </DoubleAnimation>
-                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleY" To="1.04" Duration="0:0:0.18">
-                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
-                                        </DoubleAnimation>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.EnterActions>
@@ -142,8 +133,6 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
-                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.18" />
-                                        <DoubleAnimation Storyboard.TargetName="Lift" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.18" />
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.ExitActions>

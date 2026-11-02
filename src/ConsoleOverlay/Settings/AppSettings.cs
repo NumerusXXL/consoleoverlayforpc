@@ -28,6 +28,15 @@ public sealed class AppSettings
     /// <summary>Process names (for example "oldgame.exe") the exclusive fullscreen fallback should skip.</summary>
     public List<string> ExclusiveFullscreenExcludedGames { get; set; } = [];
 
+    /// <summary>
+    /// Client ID of your own (free) Discord app, from the Discord Developer Portal. Needed for the Discord page.
+    /// See "Discord voice controls" in the README.
+    /// </summary>
+    public string DiscordClientId { get; set; } = "";
+
+    /// <summary>Client Secret of the same Discord app. It stays on this PC and is only sent to Discord.</summary>
+    public string DiscordClientSecret { get; set; } = "";
+
     public ControllerButtons ParseCombo(out List<string> unknown)
     {
         unknown = [];

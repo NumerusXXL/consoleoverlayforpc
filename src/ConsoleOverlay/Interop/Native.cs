@@ -148,4 +148,51 @@ internal static class Native
 
     [DllImport("gdi32.dll")]
     public static extern bool DeleteObject(IntPtr hObject);
+    // ---- Live window previews (All Tabs) ----
+
+    public const uint DWM_TNP_RECTDESTINATION = 0x01;
+    public const uint DWM_TNP_OPACITY = 0x04;
+    public const uint DWM_TNP_VISIBLE = 0x08;
+    public const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x10;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DWM_THUMBNAIL_PROPERTIES
+    {
+        public uint dwFlags;
+        public RECT rcDestination;
+        public RECT rcSource;
+        public byte opacity;
+        [MarshalAs(UnmanagedType.Bool)] public bool fVisible;
+        [MarshalAs(UnmanagedType.Bool)] public bool fSourceClientAreaOnly;
+    }
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmRegisterThumbnail(IntPtr hwndDestination, IntPtr hwndSource, out IntPtr thumbnail);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmUnregisterThumbnail(IntPtr thumbnail);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmUpdateThumbnailProperties(IntPtr thumbnail, ref DWM_THUMBNAIL_PROPERTIES properties);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+    public const uint WM_CLOSE = 0x0010;
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    // ---- Process names (All Tabs) ----
+
+    public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool QueryFullProcessImageName(IntPtr process, int flags, System.Text.StringBuilder name, ref int size);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool CloseHandle(IntPtr handle);
 }

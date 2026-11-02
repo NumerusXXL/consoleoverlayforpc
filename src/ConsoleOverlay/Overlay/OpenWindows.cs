@@ -10,7 +10,8 @@ using ConsoleOverlay.Interop;
 
 namespace ConsoleOverlay.Overlay;
 
-public sealed record OpenWindow(IntPtr Handle, string Title, ImageSource? Icon);
+/// <summary>An open window. <paramref name="AppName"/> is the program's friendly name, for example "Google Chrome".</summary>
+public sealed record OpenWindow(IntPtr Handle, string Title, string? AppName, ImageSource? Icon);
 
 /// <summary>Lists the windows a person would see in Alt+Tab, and switches to one.</summary>
 internal static class OpenWindows
@@ -28,12 +29,25 @@ internal static class OpenWindows
         {
             if (result.Count >= MaxWindows) return false;
             if (IsSwitchable(hwnd, ownPid))
-                result.Add(new OpenWindow(hwnd, GetTitle(hwnd), GetIcon(hwnd)));
+            {
+                var path = GetExePath(hwnd);
+                var title = GetTitle(hwnd);
+                result.Add(new OpenWindow(hwnd, title, GetAppName(path, title), GetIcon(hwnd, path)));
+            }
             return true;
         }, IntPtr.Zero);
 
         return result;
     }
+
+    /// <summary>Asks a window to close, the same as clicking its X. The app may still ask to save first.</summary>
+    public static void Close(IntPtr hwnd)
+    {
+        if (Native.IsWindow(hwnd))
+            Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    public static bool Exists(IntPtr hwnd) => Native.IsWindow(hwnd) && Native.IsWindowVisible(hwnd);
 
     public static void SwitchTo(IntPtr hwnd)
     {
@@ -71,7 +85,57 @@ internal static class OpenWindows
         return text.ToString();
     }
 
-    private static ImageSource? GetIcon(IntPtr hwnd)
+    // Friendly names barely change, so remember them for the life of the app (a few dozen entries at most).
+    private static readonly Dictionary<string, string?> AppNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string? GetExePath(IntPtr hwnd)
+    {
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        var process = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (process == IntPtr.Zero) return null;
+        try
+        {
+            var name = new StringBuilder(1024);
+            int size = name.Capacity;
+            return Native.QueryFullProcessImageName(process, 0, name, ref size) ? name.ToString() : null;
+        }
+        finally
+        {
+            Native.CloseHandle(process);
+        }
+    }
+
+    /// <summary>The program's description ("Google Chrome"), or its file name. Null when it would only repeat the title.</summary>
+    private static string? GetAppName(string? path, string title)
+    {
+        if (path is null) return null;
+        if (!AppNames.TryGetValue(path, out var name))
+        {
+            string file = System.IO.Path.GetFileNameWithoutExtension(path);
+            // Store apps all run inside ApplicationFrameHost; its name says nothing useful.
+            if (string.Equals(file, "ApplicationFrameHost", StringComparison.OrdinalIgnoreCase))
+                name = null;
+            else
+            {
+                try
+                {
+                    var description = FileVersionInfo.GetVersionInfo(path).FileDescription?.Trim();
+                    name = string.IsNullOrEmpty(description) ? file : description;
+                }
+                catch (Exception)
+                {
+                    name = file;
+                }
+            }
+            AppNames[path] = name;
+        }
+
+        if (name is null || title.Equals(name, StringComparison.OrdinalIgnoreCase))
+            return null;
+        return name;
+    }
+
+    private static ImageSource? GetIcon(IntPtr hwnd, string? path)
     {
         try
         {
@@ -82,7 +146,7 @@ internal static class OpenWindows
             if (icon == IntPtr.Zero)
                 icon = Native.GetClassLongPtr(hwnd, Native.GCLP_HICON);
             if (icon == IntPtr.Zero)
-                return null;
+                return path is null ? null : GetFileIcon(path);
 
             var source = Imaging.CreateBitmapSourceFromHIcon(icon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
             source.Freeze();
@@ -91,6 +155,23 @@ internal static class OpenWindows
         catch (Exception ex)
         {
             Debug.WriteLine($"No icon for window {hwnd}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static ImageSource? GetFileIcon(string path)
+    {
+        try
+        {
+            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+            if (icon is null) return null;
+            var source = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            source.Freeze();
+            return source;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"No icon in {path}: {ex.Message}");
             return null;
         }
     }

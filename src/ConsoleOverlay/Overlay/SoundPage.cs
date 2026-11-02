@@ -16,7 +16,7 @@ namespace ConsoleOverlay.Overlay;
 /// Up / down picks, left / right changes a volume, A picks a device or mutes, Y mutes, LT / RT jump between columns.
 /// While the page is shown it re-reads Windows audio once a second so changes made elsewhere show up.
 /// </summary>
-internal sealed class SoundPage
+internal sealed class SoundPage : IOverlayPage
 {
     private const int Step = 2;
     private const string MasterKey = "master";
@@ -58,7 +58,9 @@ internal sealed class SoundPage
 
     public Panel Content { get; }
 
-    public const string Hint = "A select · Y mute · ← → volume · LT / RT switch column · B back to game · LB / RB other pages";
+    public event Action? HintChanged { add { } remove { } }
+
+    public string Hint => "A select · Y mute · ← → volume · LT / RT switch column · B back to game · LB / RB other pages";
 
     /// <summary>Called when the page comes into view. <paramref name="gameWindow"/> is the window the overlay opened over.</summary>
     public void Activate(IntPtr gameWindow)

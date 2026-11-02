@@ -31,6 +31,7 @@ public partial class OverlayWindow : Window
         public required string Icon { get; init; }
         public required string Hint { get; init; }
         public required Panel Content { get; init; }
+        public IOverlayPage? Logic { get; init; }
         public Button DockButton { get; set; } = null!;
         public TextBlock DockLabel { get; set; } = null!;
         public SolidColorBrush DockFill { get; set; } = null!;
@@ -45,16 +46,17 @@ public partial class OverlayWindow : Window
 
     private readonly List<Page> _pages = [];
     private readonly DispatcherTimer _clock;
-    private Page _tabsPage = null!;
     private Page _settingsPage = null!;
-    private Page _soundPage = null!;
-    private SoundPage _sound = null!;
-    private bool _soundActive;
+    private AllTabsPage _tabs = null!;
+    private DiscordPage _discord = null!;
+    private IOverlayPage? _activeLogic;
     private int _selected;
     private IntPtr _currentWindow;
 
     public event Action? CloseRequested;
     public event Action<IntPtr>? SwitchToWindowRequested;
+    /// <summary>Close the overlay without giving focus back to the game, then run the action.</summary>
+    public event Action<Action>? CloseThenRequested;
     public event Action? EditSettingsRequested;
     public event Action? ReloadSettingsRequested;
     public event Action? ExitRequested;
@@ -72,11 +74,11 @@ public partial class OverlayWindow : Window
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible) return;
-            // Free the snapshot and window icons while hidden so the idle footprint stays small.
+            // Free the snapshot, window previews and icons while hidden so the idle footprint stays small.
             _clock.Stop();
             Snapshot.Source = null;
-            _tabsPage.Content.Children.Clear();
-            DeactivateSound();
+            DeactivateLogic();
+            _tabs.Clear();
         };
     }
 
@@ -86,23 +88,36 @@ public partial class OverlayWindow : Window
 
     private void BuildPages()
     {
-        _tabsPage = AddPage("All Tabs", "", "A switch to window · B back to game · LB / RB other pages",
-            new WrapPanel());
+        _tabs = new AllTabsPage(this, PageScroller);
+        _tabs.BackToGame += () => CloseRequested?.Invoke();
+        _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
+        AddPage("All Tabs", "\uE7C4", _tabs);
 
-        _sound = new SoundPage(this);
-        _soundPage = AddPage("Sound", "", SoundPage.Hint, _sound.Content);
+        AddPage("Sound", "\uE767", new SoundPage(this));
 
-        AddPage("Discord", "", "B back to game · LB / RB other pages",
-            Stack(Placeholder("Voice controls", "Your voice channel, who's talking, and mute, deafen and leave arrive in step 3.")));
+        _discord = new DiscordPage(this);
+        _discord.CloseThen += action => CloseThenRequested?.Invoke(action);
+        _discord.EditSettings += () => EditSettingsRequested?.Invoke();
+        _discord.ReloadSettings += () => ReloadSettingsRequested?.Invoke();
+        AddPage("Discord", "\uE8BD", _discord);
 
-        _settingsPage = AddPage("Settings", "", "A select · B back to game · LB / RB other pages",
-            new StackPanel());
+        _settingsPage = AddPage("Settings", "\uE9E9", "A select · B back to game · LB / RB other pages", new StackPanel(), null);
         UpdateSettings(new AppSettings());
     }
 
-    private Page AddPage(string name, string icon, string hint, Panel content)
+    private Page AddPage(string name, string icon, IOverlayPage logic)
     {
-        var page = new Page { Name = name, Icon = icon, Hint = hint, Content = content };
+        var page = AddPage(name, icon, logic.Hint, logic.Content, logic);
+        logic.HintChanged += () =>
+        {
+            if (_pages[_selected] == page) ShowHint();
+        };
+        return page;
+    }
+
+    private Page AddPage(string name, string icon, string hint, Panel content, IOverlayPage? logic)
+    {
+        var page = new Page { Name = name, Icon = icon, Hint = hint, Content = content, Logic = logic };
         int index = _pages.Count;
 
         // Brushes made here (not from resources) so their colors can be animated.
@@ -161,21 +176,15 @@ public partial class OverlayWindow : Window
         }
 
         var current = _pages[_selected];
-        if (current == _soundPage)
+        if (current.Logic != _activeLogic)
         {
-            if (!_soundActive)
-            {
-                _soundActive = true;
-                _sound.Activate(_currentWindow);
-            }
-        }
-        else
-        {
-            DeactivateSound();
+            DeactivateLogic();
+            _activeLogic = current.Logic;
+            _activeLogic?.Activate(_currentWindow);
         }
 
         PageTitleText.Text = current.Name;
-        PageHint.Text = current.Hint;
+        ShowHint();
         PageScroller.ScrollToTop();
 
         if (previous != _selected)
@@ -194,11 +203,11 @@ public partial class OverlayWindow : Window
             FocusFirst();
     }
 
-    private void DeactivateSound()
+    private void DeactivateLogic()
     {
-        if (!_soundActive) return;
-        _soundActive = false;
-        _sound.Deactivate();
+        var logic = _activeLogic;
+        _activeLogic = null;
+        logic?.Deactivate();
     }
 
     /// <summary>The current page's dock icon widens into a light pill and its name slides in.</summary>
@@ -223,71 +232,13 @@ public partial class OverlayWindow : Window
 
     private void FocusFirst()
     {
-        if (_pages[_selected] == _soundPage)
-        {
-            var first = _sound.FirstFocus();
-            if (first is null) return;
-            first.Focus();
-            Keyboard.Focus(first);
-            return;
-        }
-
-        var buttons = _pages[_selected].Content.Children.OfType<Button>().ToList();
-        // On All Tabs, start on the first window that isn't the one you came from, like Alt+Tab.
-        var target = buttons.FirstOrDefault(b => b.Tag is IntPtr h && h != _currentWindow) ?? buttons.FirstOrDefault();
+        var page = _pages[_selected];
+        var target = page.Logic is not null
+            ? page.Logic.FirstFocus()
+            : page.Content.Children.OfType<Button>().FirstOrDefault();
         if (target is null) return;
         target.Focus();
         Keyboard.Focus(target);
-    }
-
-    // ---- All Tabs ---------------------------------------------------------------------------
-
-    private void FillTabs(IReadOnlyList<OpenWindow> windows)
-    {
-        var panel = _tabsPage.Content;
-        panel.Children.Clear();
-
-        if (windows.Count == 0)
-        {
-            panel.Children.Add(Placeholder("No other windows open", "Apps and games you open show up here."));
-            return;
-        }
-
-        foreach (var window in windows)
-        {
-            bool isCurrent = window.Handle == _currentWindow;
-            // Three tiles per row fit the 880px page card (tile + outline + margin ≈ 268px each).
-            var tile = new Grid { Width = 214, Height = 128 };
-            tile.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            tile.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            if (window.Icon is not null)
-            {
-                var icon = new Image { Source = window.Icon, Width = 40, Height = 40, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
-                tile.Children.Add(icon);
-            }
-
-            var title = new TextBlock
-            {
-                Text = isCurrent ? $"{window.Title}  ·  current" : window.Title,
-                FontSize = 14,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-            Grid.SetRow(title, 1);
-            tile.Children.Add(title);
-
-            var button = new Button { Style = (Style)FindResource("TileButton"), Content = tile, Tag = window.Handle, ToolTip = window.Title };
-            var handle = window.Handle;
-            button.Click += (_, _) =>
-            {
-                if (handle == _currentWindow)
-                    CloseRequested?.Invoke();
-                else
-                    SwitchToWindowRequested?.Invoke(handle);
-            };
-            panel.Children.Add(button);
-        }
     }
 
     // ---- Settings ---------------------------------------------------------------------------
@@ -295,6 +246,8 @@ public partial class OverlayWindow : Window
     /// <summary>Shows the current settings. Editing in the overlay itself arrives in step 4.</summary>
     public void UpdateSettings(AppSettings settings)
     {
+        _discord.UpdateSettings(settings);
+
         var panel = _settingsPage.Content;
         panel.Children.Clear();
 
@@ -306,6 +259,11 @@ public partial class OverlayWindow : Window
         panel.Children.Add(Row("Exclusive fullscreen games", "What happens when a game doesn't allow overlays",
             settings.ExclusiveFullscreenFallback ? "Minimize and open" : "Don't open", () => EditSettingsRequested?.Invoke()));
 
+        panel.Children.Add(new TextBlock { Text = "Discord", Style = (Style)FindResource("SectionLabel"), Margin = new Thickness(2, 18, 0, 10) });
+        bool discordSet = settings.DiscordClientId.Trim().Length > 0 && settings.DiscordClientSecret.Trim().Length > 0;
+        panel.Children.Add(Row("Discord app", "Your Client ID and Client Secret, for voice controls",
+            discordSet ? "Set" : "Not set", () => EditSettingsRequested?.Invoke()));
+
         panel.Children.Add(new TextBlock { Text = "App", Style = (Style)FindResource("SectionLabel"), Margin = new Thickness(2, 18, 0, 10) });
         panel.Children.Add(Row("Edit settings file", "Changing settings right here arrives in step 4", null, () => EditSettingsRequested?.Invoke()));
         panel.Children.Add(Row("Reload settings", "Apply changes from the settings file", null, () => ReloadSettingsRequested?.Invoke()));
@@ -314,54 +272,59 @@ public partial class OverlayWindow : Window
         panel.Children.Add(quit);
     }
 
-    // ---- Building blocks --------------------------------------------------------------------
-
-    private static StackPanel Stack(params UIElement[] children)
-    {
-        var panel = new StackPanel();
-        foreach (var child in children)
-            panel.Children.Add(child);
-        return panel;
-    }
-
-    private Button Row(string title, string? hint, string? value, Action? onClick)
-    {
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var text = new StackPanel();
-        text.Children.Add(new TextBlock { Text = title, Style = (Style)FindResource("RowTitle") });
-        if (hint is not null)
-            text.Children.Add(new TextBlock { Text = hint, Style = (Style)FindResource("RowHint") });
-        grid.Children.Add(text);
-
-        if (value is not null)
-        {
-            var valueText = new TextBlock { Text = value + "  ›", Style = (Style)FindResource("RowValue"), Margin = new Thickness(16, 0, 0, 0) };
-            Grid.SetColumn(valueText, 1);
-            grid.Children.Add(valueText);
-        }
-
-        var button = new Button { Style = (Style)FindResource("RowButton"), Content = grid };
-        if (onClick is not null)
-            button.Click += (_, _) => onClick();
-        return button;
-    }
-
-    private Button Placeholder(string title, string hint)
-    {
-        var row = Row(title, hint, null, null);
-        row.Opacity = 0.75;
-        return row;
-    }
+    private Button Row(string title, string? hint, string? value, Action? onClick) => Ui.Row(this, title, hint, value, onClick);
 
     // ---- Input ------------------------------------------------------------------------------
+
+    private bool _keyboardHints;
 
     /// <summary>Handles a controller command while the overlay is open.</summary>
     public void Navigate(NavCommand command)
     {
-        if (_pages[_selected] == _soundPage && _sound.Handle(command, Keyboard.FocusedElement))
+        if (_keyboardHints)
+        {
+            _keyboardHints = false;
+            ShowHint();
+        }
+        Run(command);
+    }
+
+    /// <summary>
+    /// Shows the current page's button hints, written for whatever was used last: the controller, or the keyboard
+    /// (Enter for A, Esc for B, Q / E for LB / RB, Tab for LT / RT).
+    /// </summary>
+    private void ShowHint()
+    {
+        var page = _pages[_selected];
+        string hint = page.Logic?.Hint ?? page.Hint;
+        if (_keyboardHints)
+        {
+            hint = hint.Replace("LB / RB", "Q / E").Replace("LT / RT", "Tab");
+            hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bA\b", "Enter");
+            hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bB\b", "Esc");
+        }
+        PageHint.Text = hint;
+    }
+
+    /// <summary>The keyboard does everything the controller does, through the same commands.</summary>
+    private static NavCommand? KeyToCommand(Key key) => key switch
+    {
+        Key.Up => NavCommand.Up,
+        Key.Down => NavCommand.Down,
+        Key.Left => NavCommand.Left,
+        Key.Right => NavCommand.Right,
+        Key.Enter or Key.Space => NavCommand.Accept,
+        Key.Escape or Key.Back => NavCommand.Back,
+        Key.Q or Key.PageUp => NavCommand.PreviousTab,
+        Key.E or Key.PageDown => NavCommand.NextTab,
+        Key.X => NavCommand.Secondary,
+        Key.Y => NavCommand.Mute,
+        _ => null,
+    };
+
+    private void Run(NavCommand command)
+    {
+        if (_pages[_selected].Logic?.Handle(command, Keyboard.FocusedElement) == true)
             return;
 
         switch (command)
@@ -380,8 +343,8 @@ public partial class OverlayWindow : Window
                     && new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke) is IInvokeProvider invoker)
                     invoker.Invoke();
                 return;
-            case NavCommand.Mute or NavCommand.ColumnLeft or NavCommand.ColumnRight:
-                return; // only the Sound page uses these
+            case NavCommand.Mute or NavCommand.Secondary or NavCommand.ColumnLeft or NavCommand.ColumnRight:
+                return; // only some pages use these
         }
 
         if (Keyboard.FocusedElement is not UIElement focused || !IsInCurrentPage(focused))
@@ -401,37 +364,30 @@ public partial class OverlayWindow : Window
         (Keyboard.FocusedElement as FrameworkElement)?.BringIntoView();
     }
 
-    private bool IsInCurrentPage(DependencyObject element)
-    {
-        for (var node = element; node is not null; node = VisualTreeHelper.GetParent(node))
-            if (node == _pages[_selected].Content)
-                return true;
-        return false;
-    }
+    private bool IsInCurrentPage(DependencyObject element) => Ui.IsInside(element, _pages[_selected].Content);
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_pages[_selected] == _soundPage && _sound.HandleKey(e.Key, Keyboard.FocusedElement))
+        // Leave shortcuts with Ctrl / Alt / Windows alone (Shift is fine: Shift+Tab).
+        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0)
+            return;
+
+        if (!_keyboardHints)
         {
+            _keyboardHints = true;
+            ShowHint();
+        }
+
+        if (KeyToCommand(e.Key) is { } command)
+        {
+            Run(command);
             e.Handled = true;
             return;
         }
 
-        switch (e.Key)
-        {
-            case Key.Escape:
-                CloseRequested?.Invoke();
-                e.Handled = true;
-                break;
-            case Key.Q or Key.PageUp:
-                SelectPage(_selected - 1, focusFirst: true);
-                e.Handled = true;
-                break;
-            case Key.E or Key.PageDown:
-                SelectPage(_selected + 1, focusFirst: true);
-                e.Handled = true;
-                break;
-        }
+        // Extra keys a page understands (M to mute, Tab to switch column, Delete to close a window).
+        if (_pages[_selected].Logic?.HandleKey(e.Key, Keyboard.FocusedElement) == true)
+            e.Handled = true;
     }
 
     private void Backdrop_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => CloseRequested?.Invoke();
@@ -447,7 +403,8 @@ public partial class OverlayWindow : Window
         OpaqueBackdrop.Visibility = useSnapshot ? Visibility.Collapsed : Visibility.Visible;
 
         _currentWindow = currentWindow;
-        FillTabs(windows);
+        DeactivateLogic(); // reopened during the close animation: start fresh
+        _tabs.SetWindows(windows, currentWindow);
         UpdateClock();
         _clock.Start();
 
@@ -504,6 +461,7 @@ public partial class OverlayWindow : Window
     public void HideAnimated(Action? after)
     {
         int token = ++_visibilityToken;
+        _tabs.HidePreviewsNow(); // Windows draws them on top, so they wouldn't fade with the rest
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
         var fast = new Duration(TimeSpan.FromMilliseconds(170));
 
