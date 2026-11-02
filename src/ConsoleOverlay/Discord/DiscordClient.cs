@@ -248,6 +248,8 @@ internal sealed class DiscordClient
             answer = await SendAsync("AUTHORIZE", new JsonObject
             {
                 ["client_id"] = _clientId,
+                // Discord insists on it here too, and it must be one of the Redirects on the app's OAuth2 page.
+                ["redirect_uri"] = RedirectUri,
                 ["scopes"] = new JsonArray(Scopes.Select(s => (JsonNode)JsonValue.Create(s)!).ToArray()),
             }, timeout: TimeSpan.FromMinutes(5));
         }
