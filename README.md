@@ -85,7 +85,7 @@ On the **Discord** page (laid out like Discord on Xbox: you and a menu on the le
 The **Settings** page in the overlay has a list of sections on the left. Moving through the list shows each section on the right; A (or →) goes into it, B (or ←) comes back. On a choice, ← → changes it. Every change is saved right away.
 
 - **Controls**: record a new controller combo (pick it, then hold the new buttons together for a second) or a new keyboard shortcut (pick it, then press the keys). Esc cancels.
-- **Appearance**: accent color, the background behind the overlay (blurred game, sharp game, or dark), 12 or 24-hour clock.
+- **Appearance**: size (Big, the default, fits the overlay to the screen like a console on a TV; Standard is for a desk; Huge is bigger still), accent color, the background behind the overlay (blurred game, sharp game, or dark), 12 or 24-hour clock.
 - **Startup**: start with Windows, and whether to show a notification when it starts.
 - **Games**: what to do with exclusive fullscreen games, and which games to skip. Open the overlay over a game and it offers to skip that one.
 - **Discord**: enter your Discord app's Client ID and Client Secret (type them, or X to paste from the clipboard), open the setup guide, sign out.

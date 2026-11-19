@@ -22,6 +22,13 @@
         <Image x:Name="SnapshotBlurred" Stretch="Fill" Margin="-40" Opacity="0" RenderOptions.BitmapScalingMode="Linear" />
         <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" Opacity="0" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
 
+        <!-- Everything you read and press, scaled up as a whole for the TV-distance sizes (Settings › Appearance › Size).
+             No background, so clicks around the card still reach the dim layer and close the overlay. -->
+        <Grid x:Name="Chrome">
+        <Grid.LayoutTransform>
+            <ScaleTransform x:Name="ChromeScale" />
+        </Grid.LayoutTransform>
+
         <!-- Page card: frosted glass. A soft shadow, a see-through tint over the blurred game, a light sheen at the
              top and a hairline edge that is brighter on top, like light catching the rim of a pane. -->
         <Grid x:Name="PageCard"
@@ -63,7 +70,8 @@
                     <Grid x:Name="PageHost" />
                 </ScrollViewer>
 
-                <TextBlock Grid.Row="2" x:Name="PageHint" Margin="2,16,0,0" Style="{StaticResource HintText}" />
+                <!-- Button prompts, drawn like a console's: a colored A, a red B, LB / RB pills... -->
+                <WrapPanel Grid.Row="2" x:Name="PageHint" Margin="0,16,0,0" />
             </Grid>
         </Grid>
 
@@ -82,10 +90,15 @@
                 <TranslateTransform x:Name="DockOffset" />
             </Border.RenderTransform>
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="LB" FontSize="10" FontWeight="Bold" Foreground="{StaticResource IconBrush}" VerticalAlignment="Center" Margin="8,0,6,0" />
+                <Border Background="#33FFFFFF" CornerRadius="7" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="8,0,6,0">
+                    <TextBlock Text="LB" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
+                </Border>
                 <StackPanel x:Name="DockItems" Orientation="Horizontal" />
-                <TextBlock Text="RB" FontSize="10" FontWeight="Bold" Foreground="{StaticResource IconBrush}" VerticalAlignment="Center" Margin="6,0,8,0" />
+                <Border Background="#33FFFFFF" CornerRadius="7" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="6,0,8,0">
+                    <TextBlock Text="RB" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
+                </Border>
             </StackPanel>
         </Border>
+        </Grid>
     </Grid>
 </Window>
