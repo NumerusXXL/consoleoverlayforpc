@@ -92,6 +92,7 @@ public sealed class OverlayController
         _previousForeground = foreground;
         IsOpen = true;
         _openedAt.Restart();
+        OverlayPriority.Boost(true);
 
         var monitor = GetMonitorRect(foreground);
         Log.Write($"Opening over {GetProcessName(foreground) ?? "desktop"} on monitor {monitor.Left},{monitor.Top} {monitor.Width}x{monitor.Height}, exclusive={exclusive}.");
@@ -120,6 +121,7 @@ public sealed class OverlayController
         _previousForeground = IntPtr.Zero;
         _window.HideAnimated(() =>
         {
+            OverlayPriority.Boost(false);
             if (restorePrevious && previous != IntPtr.Zero && Native.IsWindow(previous))
             {
                 // An exclusive fullscreen game minimizes itself when it loses focus; bring it back.

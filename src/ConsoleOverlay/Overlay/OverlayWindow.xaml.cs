@@ -48,6 +48,7 @@ public partial class OverlayWindow : Window
     private readonly DispatcherTimer _stallWatch;
     private readonly FrameMonitor _frames = new();
     private readonly System.Diagnostics.Stopwatch _stallClock = new();
+    private int _fullCollections;
     private Page _settingsPage = null!;
     private SettingsPage _settings = null!;
     private SoundPage _sound = null!;
@@ -84,8 +85,11 @@ public partial class OverlayWindow : Window
         {
             long gap = _stallClock.ElapsedMilliseconds;
             _stallClock.Restart();
+            int fullCollections = GC.CollectionCount(2);
             if (gap > 250)
-                Log.Write($"The overlay was busy for {gap - 100} ms on the {_pages[_selected].Name} page.");
+                Log.Write($"The overlay was busy for {gap - 100} ms on the {_pages[_selected].Name} page"
+                    + (fullCollections != _fullCollections ? " (a full garbage collection ran)." : "."));
+            _fullCollections = fullCollections;
         };
         // Tier 2 is full GPU drawing. Tier 0 means Windows makes WPF draw in software (remote desktop, old drivers), which is slow.
         Log.Write($"Graphics: rendering tier {RenderCapability.Tier >> 16}.");

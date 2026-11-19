@@ -29,6 +29,8 @@ internal sealed class SoundPage : IOverlayPage
         public required ColumnDefinition Empty { get; init; }
         public required Border Fill { get; init; }
         public AppAudio? App { get; set; } // null for master
+        public int ShownVolume { get; set; } = -1; // what is on screen now, so unchanged rows aren't laid out again
+        public bool ShownMuted { get; set; }
     }
 
     private readonly FrameworkElement _resources;
@@ -424,6 +426,10 @@ internal sealed class SoundPage : IOverlayPage
     {
         int volume = row.App?.Volume ?? _audio.MasterVolume;
         bool muted = row.App?.Muted ?? _audio.MasterMuted;
+        // The page re-reads audio every second; only touch the row (and cause a layout pass) when something changed.
+        if (volume == row.ShownVolume && muted == row.ShownMuted) return;
+        row.ShownVolume = volume;
+        row.ShownMuted = muted;
         row.Value.Text = muted ? "Muted" : volume.ToString(System.Globalization.CultureInfo.CurrentCulture);
         row.Filled.Width = new GridLength(Math.Max(volume, 0.0001), GridUnitType.Star);
         row.Empty.Width = new GridLength(Math.Max(100 - volume, 0.0001), GridUnitType.Star);
