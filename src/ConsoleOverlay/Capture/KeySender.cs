@@ -13,7 +13,7 @@ internal static class KeySender
     public static void Press(params ushort[] keys)
     {
         var inputs = keys.Select(k => Key(k, up: false))
-            .Concat(keys.Reverse().Select(k => Key(k, up: true)))
+            .Concat(Enumerable.Reverse(keys).Select(k => Key(k, up: true)))
             .ToArray();
         uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         if (sent != inputs.Length)
