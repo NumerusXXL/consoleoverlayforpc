@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using ConsoleOverlay.Input;
 using ConsoleOverlay.Interop;
@@ -13,17 +14,23 @@ using ConsoleOverlay.Interop;
 namespace ConsoleOverlay.Overlay;
 
 /// <summary>
-/// The All Tabs page: every open window as a tile with a live preview, like Alt+Tab.
-/// A switches to the window, X closes it. The previews are DWM thumbnails: Windows itself draws them straight
-/// from each window's surface onto ours, so they cost almost nothing and stay live. Windows draws them on top
-/// of our content at fixed pixel positions, so they are only turned on once the page has stopped moving, and are
+/// The All Tabs page, laid out like a console home screen: every open window as a tile in one row, the focused one
+/// bigger, and its name in large type underneath with what A and X do. A switches to the window (or back to the game
+/// you came from), X closes it.
+///
+/// The tiles show live previews. These are DWM thumbnails: Windows itself draws them straight from each window's
+/// surface onto ours, so they cost almost nothing and stay live. Windows draws them on top of our content at fixed
+/// pixel positions, so they are only turned on once the page has stopped moving, re-placed while a tile grows, and
 /// hidden for tiles scrolled partly out of view.
 /// </summary>
 internal sealed class AllTabsPage : IOverlayPage
 {
-    private const double PreviewWidth = 214;
-    private const double PreviewHeight = 120;
+    private const double TileWidth = 224, TileHeight = 140;
+    private const double FocusedWidth = 320, FocusedHeight = 200;
+    private const double TileGap = 18;   // the space between tiles
+    private const double PreviewInset = 10; // the preview sits inside the tile's frosted frame
     private static readonly TimeSpan ShowPreviewsAfter = TimeSpan.FromMilliseconds(400); // open / slide animations
+    private static readonly TimeSpan GrowTime = TimeSpan.FromMilliseconds(240);
     private static readonly TimeSpan ConfirmWindow = TimeSpan.FromSeconds(3);
 
     private sealed class Tile
@@ -32,17 +39,28 @@ internal sealed class AllTabsPage : IOverlayPage
         public required Button Button { get; init; }
         public required Border Preview { get; init; }
         public required UIElement Placeholder { get; init; }
-        public required TextBlock Subtitle { get; init; }
-        public required string SubtitleText { get; init; }
         public IntPtr Thumbnail { get; set; }
     }
 
     private readonly Window _window;
-    private readonly ScrollViewer _scroller;
-    private readonly WrapPanel _panel = new();
+    private readonly Grid _root = new();
+    private readonly ScrollViewer _strip = new()
+    {
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Focusable = false,
+        CanContentScroll = false,
+    };
+    private readonly StackPanel _row = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom };
+    private readonly Image _heroIcon = new() { Width = 46, Height = 46, Margin = new Thickness(0, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _title = new() { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _meta = new();
+    private readonly StackPanel _actions = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0) };
     private readonly List<Tile> _tiles = [];
     private readonly DispatcherTimer _showTimer;
     private readonly DispatcherTimer _fadeTimer;
+    private readonly DispatcherTimer _followTimer;
+    private DateTime _followUntil;
     private IReadOnlyList<OpenWindow> _windows = [];
     private IntPtr _currentWindow;
     private bool _active;
@@ -60,10 +78,36 @@ internal sealed class AllTabsPage : IOverlayPage
     /// <summary>The hint never changes; raised when the window count (the subtitle) does.</summary>
     public event Action? HintChanged;
 
-    public AllTabsPage(Window window, ScrollViewer scroller)
+    public AllTabsPage(Window window)
     {
         _window = window;
-        _scroller = scroller;
+
+        _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(FocusedHeight + 30) });
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // Padding so the focus ring and halo (drawn just outside a tile) aren't cut off by the scrolling strip.
+        _row.Margin = new Thickness(10, 10, 10, 12);
+        _strip.Content = _row;
+        _strip.Margin = new Thickness(-10, 0, -10, 0);
+        KeyboardNavigation.SetDirectionalNavigation(_row, KeyboardNavigationMode.Contained);
+        _root.Children.Add(_strip);
+
+        _title.Style = (Style)window.FindResource("HeroTitle");
+        RenderOptions.SetBitmapScalingMode(_heroIcon, BitmapScalingMode.HighQuality);
+        var titleLine = new DockPanel();
+        DockPanel.SetDock(_heroIcon, Dock.Left);
+        titleLine.Children.Add(_heroIcon);
+        titleLine.Children.Add(_title);
+        _meta.FontSize = 16;
+        _meta.Margin = new Thickness(0, 8, 0, 0);
+        _meta.Foreground = (Brush)window.FindResource("SoftTextBrush");
+        var info = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
+        info.Children.Add(titleLine);
+        info.Children.Add(_meta);
+        info.Children.Add(_actions);
+        Grid.SetRow(info, 1);
+        _root.Children.Add(info);
+
         _showTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = ShowPreviewsAfter };
         _showTimer.Tick += (_, _) =>
         {
@@ -75,17 +119,24 @@ internal sealed class AllTabsPage : IOverlayPage
         };
         _fadeTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
         _fadeTimer.Tick += (_, _) => FadeStep();
-        _scroller.ScrollChanged += (_, _) =>
+        // While tiles grow or shrink, keep moving the previews with them, frame by frame.
+        _followTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+        _followTimer.Tick += (_, _) =>
+        {
+            if (_previewsOn) PlacePreviews();
+            if (DateTime.UtcNow > _followUntil) _followTimer.Stop();
+        };
+        _strip.ScrollChanged += (_, _) =>
         {
             if (_previewsOn) PlacePreviews();
         };
     }
 
-    public Panel Content => _panel;
+    public Panel Content => _root;
 
     public string? Subtitle => _windows.Count == 1 ? "1 open" : $"{_windows.Count} open";
 
-    public string Hint => "A switch to window · X close window · B back to game · LB / RB other pages";
+    public string Hint => "B back to game · LB / RB other pages";
 
     /// <summary>Called each time the overlay opens, with the windows open right now.</summary>
     public void SetWindows(IReadOnlyList<OpenWindow> windows, IntPtr currentWindow)
@@ -118,27 +169,32 @@ internal sealed class AllTabsPage : IOverlayPage
     {
         HidePreviews();
         _tiles.Clear();
-        _panel.Children.Clear();
+        _row.Children.Clear();
         _windows = [];
+        _heroIcon.Source = null;
     }
 
     /// <summary>Start on the first window that isn't the one you came from, like Alt+Tab.</summary>
-    public UIElement? FirstFocus()
-    {
-        var buttons = _panel.Children.OfType<Button>().ToList();
-        return buttons.FirstOrDefault(b => b.Tag is IntPtr h && h != _currentWindow) ?? buttons.FirstOrDefault();
-    }
+    public UIElement? FirstFocus() =>
+        _tiles.FirstOrDefault(t => t.Window.Handle != _currentWindow)?.Button ?? _tiles.FirstOrDefault()?.Button;
 
     public bool Handle(NavCommand command, IInputElement? focused)
     {
-        if (command != NavCommand.Secondary) return false;
-        if (focused is Button { Tag: IntPtr handle })
-            CloseWindow(handle);
-        return true;
+        switch (command)
+        {
+            case NavCommand.Secondary:
+                if (Focused(focused) is { } tile) CloseWindow(tile.Window.Handle);
+                return true;
+            case NavCommand.Up or NavCommand.Down:
+                return true; // one row: nothing above or below
+        }
+        return false;
     }
 
     public bool HandleKey(Key key, IInputElement? focused) =>
         key is Key.X or Key.Delete && Handle(NavCommand.Secondary, focused);
+
+    private Tile? Focused(IInputElement? focused) => _tiles.FirstOrDefault(t => t.Button == focused);
 
     // ---- Closing windows --------------------------------------------------------------------
 
@@ -152,13 +208,14 @@ internal sealed class AllTabsPage : IOverlayPage
         {
             _confirmClose = handle;
             _confirmUntil = DateTime.UtcNow + ConfirmWindow;
-            tile.Subtitle.Text = "Press X again to close this game";
+            ShowInfo(tile);
             var reset = new DispatcherTimer { Interval = ConfirmWindow };
             reset.Tick += (_, _) =>
             {
                 reset.Stop();
-                if (_confirmClose == handle) _confirmClose = IntPtr.Zero;
-                tile.Subtitle.Text = tile.SubtitleText;
+                if (_confirmClose != handle) return;
+                _confirmClose = IntPtr.Zero;
+                if (Keyboard.FocusedElement == tile.Button) ShowInfo(tile);
             };
             reset.Start();
             return;
@@ -167,7 +224,7 @@ internal sealed class AllTabsPage : IOverlayPage
         _confirmClose = IntPtr.Zero;
         Log.Write($"Closing window \"{tile.Window.Title}\" from All Tabs.");
         int index = _tiles.IndexOf(tile);
-        tile.Subtitle.Text = "Closing…";
+        _meta.Text = "Closing…";
         tile.Button.Opacity = 0.5;
         OpenWindows.Close(handle);
 
@@ -196,10 +253,9 @@ internal sealed class AllTabsPage : IOverlayPage
         Build();
         HintChanged?.Invoke();
 
-        var buttons = _panel.Children.OfType<Button>().ToList();
-        if (buttons.Count > 0)
+        if (_tiles.Count > 0)
         {
-            var target = buttons[Math.Clamp(focusIndex, 0, buttons.Count - 1)];
+            var target = _tiles[Math.Clamp(focusIndex, 0, _tiles.Count - 1)].Button;
             target.Focus();
             Keyboard.Focus(target);
         }
@@ -214,133 +270,111 @@ internal sealed class AllTabsPage : IOverlayPage
 
     private void Build()
     {
-        _panel.Children.Clear();
+        _row.Children.Clear();
         _tiles.Clear();
+        _strip.ScrollToHorizontalOffset(0);
 
         if (_windows.Count == 0)
         {
-            _panel.Children.Add(Ui.Placeholder(_window, "No other windows open", "Apps and games you open show up here."));
+            _strip.Visibility = Visibility.Hidden;
+            _heroIcon.Visibility = Visibility.Collapsed;
+            _title.Text = "No other windows open";
+            _meta.Text = "Apps and games you open show up here.";
+            _actions.Children.Clear();
             return;
         }
 
+        _strip.Visibility = Visibility.Visible;
         foreach (var window in _windows)
-            _panel.Children.Add(BuildTile(window));
+            _row.Children.Add(BuildTile(window));
+        ShowInfo(Focused(FirstFocus()) ?? _tiles[0]);
     }
 
     private Button BuildTile(OpenWindow window)
     {
-        bool isCurrent = window.Handle == _currentWindow;
-
-        // Preview area: the app's icon until the live preview is drawn over it.
+        // The app's icon, until the live preview is drawn over it (and for minimized windows, which have none).
         var bigIcon = window.Icon is null
-            ? (UIElement)Ui.Icon(_window, "\uE7C4", 34) // a generic window
-            : new Image { Source = window.Icon, Width = 44, Height = 44 };
-        if (bigIcon is FrameworkElement big)
-        {
-            big.HorizontalAlignment = HorizontalAlignment.Center;
-            big.VerticalAlignment = VerticalAlignment.Center;
-            big.Opacity = 0.9;
-        }
+            ? (FrameworkElement)Ui.Icon(_window, "", 40) // a generic window
+            : new Image { Source = window.Icon, Width = 56, Height = 56 };
+        bigIcon.HorizontalAlignment = HorizontalAlignment.Center;
+        bigIcon.VerticalAlignment = VerticalAlignment.Center;
         RenderOptions.SetBitmapScalingMode(bigIcon, BitmapScalingMode.HighQuality);
+
         var preview = new Border
         {
-            Width = PreviewWidth,
-            Height = PreviewHeight,
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromRgb(0x14, 0x18, 0x22)),
+            Margin = new Thickness(PreviewInset),
             Child = bigIcon,
         };
 
-        // Title line: small icon and the window title.
-        var titleRow = new Grid { Margin = new Thickness(0, 12, 0, 0) };
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        if (window.Icon is not null)
-        {
-            var small = new Image { Source = window.Icon, Width = 18, Height = 18, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
-            RenderOptions.SetBitmapScalingMode(small, BitmapScalingMode.HighQuality);
-            titleRow.Children.Add(small);
-        }
-        var title = new TextBlock
-        {
-            Text = window.Title,
-            FontSize = 14,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(title, 1);
-        titleRow.Children.Add(title);
-
-        // A close button you can click; on the controller it's X (keyboard X or Delete) on the focused tile.
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var closeIcon = Ui.Icon(_window, "\uE711", 11);
-        closeIcon.HorizontalAlignment = HorizontalAlignment.Center;
-        var closeFill = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
-        var close = new Border
-        {
-            Width = 24,
-            Height = 24,
-            CornerRadius = new CornerRadius(12),
-            Margin = new Thickness(8, 0, 0, 0),
-            Background = closeFill,
-            Child = closeIcon,
-            Cursor = Cursors.Hand,
-            ToolTip = window.Handle == _currentWindow ? "Close this game (X, twice)" : "Close (X)",
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        close.MouseEnter += (_, _) => closeFill.Color = Color.FromArgb(0x55, 0xF0, 0x6A, 0x6A);
-        close.MouseLeave += (_, _) => closeFill.Color = Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF);
-        Grid.SetColumn(close, 2);
-        titleRow.Children.Add(close);
-
-        string subtitleText = isCurrent
-            ? (window.AppName is null ? "Current" : $"Current  ·  {window.AppName}")
-            : window.AppName ?? " ";
-        var subtitle = new TextBlock
-        {
-            Text = subtitleText,
-            FontSize = 12,
-            Margin = new Thickness(0, 3, 0, 0),
-            Foreground = (Brush)_window.FindResource("SubtleTextBrush"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-
-        var content = new StackPanel { Width = PreviewWidth };
-        content.Children.Add(preview);
-        content.Children.Add(titleRow);
-        content.Children.Add(subtitle);
-
         var button = new Button
         {
-            Style = (Style)_window.FindResource("TileButton"),
-            Content = content,
-            Tag = window.Handle,
+            Style = (Style)_window.FindResource("WindowTile"),
+            Content = preview,
+            Width = TileWidth,
+            Height = TileHeight,
+            Margin = new Thickness(0, 0, TileGap, 0),
+            VerticalAlignment = VerticalAlignment.Bottom,
             ToolTip = window.AppName is null ? window.Title : $"{window.Title}\n{window.AppName}",
         };
-        var handle = window.Handle;
-        close.PreviewMouseLeftButtonDown += (_, e) =>
-        {
-            e.Handled = true; // don't also switch to the window
-            CloseWindow(handle);
-        };
-        button.Click += (_, _) =>
-        {
-            if (handle == _currentWindow)
-                BackToGame?.Invoke();
-            else
-                SwitchTo?.Invoke(handle);
-        };
+        var tile = new Tile { Window = window, Button = button, Preview = preview, Placeholder = bigIcon };
 
-        _tiles.Add(new Tile
+        button.Click += (_, _) => Primary(tile);
+        // With a mouse, pointing at a tile picks it, so the X pill below closes the one you point at.
+        button.MouseEnter += (_, _) =>
         {
-            Window = window,
-            Button = button,
-            Preview = preview,
-            Placeholder = bigIcon,
-            Subtitle = subtitle,
-            SubtitleText = subtitleText,
-        });
+            if (!button.IsKeyboardFocused) Keyboard.Focus(button);
+        };
+        button.GotKeyboardFocus += (_, _) =>
+        {
+            int index = _tiles.IndexOf(tile);
+            // Keep the focused tile near the left with one tile before it. Every tile before it is the small size,
+            // so its position is known before the grow animation runs.
+            _strip.ScrollToHorizontalOffset(Math.Max(0, (index - 1) * (TileWidth + TileGap)));
+            Grow(button, true);
+            ShowInfo(tile);
+        };
+        button.LostKeyboardFocus += (_, _) => Grow(button, false);
+
+        _tiles.Add(tile);
         return button;
+    }
+
+    /// <summary>The focused tile grows; its preview (and its neighbours', which shift) follows it every frame.</summary>
+    private void Grow(Button button, bool focused)
+    {
+        var duration = new Duration(GrowTime);
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        button.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(focused ? FocusedWidth : TileWidth, duration) { EasingFunction = ease });
+        button.BeginAnimation(FrameworkElement.HeightProperty, new DoubleAnimation(focused ? FocusedHeight : TileHeight, duration) { EasingFunction = ease });
+        _followUntil = DateTime.UtcNow + GrowTime + TimeSpan.FromMilliseconds(40);
+        if (_previewsOn && !_followTimer.IsEnabled) _followTimer.Start();
+    }
+
+    private void ShowInfo(Tile tile)
+    {
+        var window = tile.Window;
+        bool current = window.Handle == _currentWindow;
+        bool confirming = current && _confirmClose == window.Handle && DateTime.UtcNow <= _confirmUntil;
+
+        _heroIcon.Source = window.Icon;
+        _heroIcon.Visibility = window.Icon is null ? Visibility.Collapsed : Visibility.Visible;
+        _title.Text = window.Title;
+        _meta.Text = confirming ? "Press X again to close this game"
+            : current ? (window.AppName is null ? "Current" : $"Current · {window.AppName}")
+            : window.AppName ?? "";
+
+        _actions.Children.Clear();
+        _actions.Children.Add(Ui.ActionPill(_window, "A", current ? "Back to game" : "Switch to", primary: true, () => Primary(tile)));
+        _actions.Children.Add(Ui.ActionPill(_window, "X", confirming ? "Close (press again)" : "Close", primary: false,
+            () => CloseWindow(window.Handle)));
+    }
+
+    private void Primary(Tile tile)
+    {
+        if (tile.Window.Handle == _currentWindow)
+            BackToGame?.Invoke();
+        else
+            SwitchTo?.Invoke(tile.Window.Handle);
     }
 
     // ---- Live previews ----------------------------------------------------------------------
@@ -386,7 +420,7 @@ internal sealed class AllTabsPage : IOverlayPage
         Rect viewport;
         try
         {
-            viewport = _scroller.TransformToAncestor(_window).TransformBounds(new Rect(_scroller.RenderSize));
+            viewport = _strip.TransformToAncestor(_window).TransformBounds(new Rect(_strip.RenderSize));
         }
         catch (InvalidOperationException)
         {
@@ -407,7 +441,9 @@ internal sealed class AllTabsPage : IOverlayPage
                 continue;
             }
 
-            bool inView = area.Width > 0 && area.Top >= viewport.Top - 1 && area.Bottom <= viewport.Bottom + 1;
+            bool inView = area.Width > 0
+                && area.Left >= viewport.Left - 1 && area.Right <= viewport.Right + 1
+                && area.Top >= viewport.Top - 1 && area.Bottom <= viewport.Bottom + 1;
             var properties = new Native.DWM_THUMBNAIL_PROPERTIES
             {
                 dwFlags = Native.DWM_TNP_VISIBLE | Native.DWM_TNP_RECTDESTINATION | Native.DWM_TNP_OPACITY | Native.DWM_TNP_SOURCECLIENTAREAONLY,
@@ -449,6 +485,7 @@ internal sealed class AllTabsPage : IOverlayPage
     private void HidePreviews()
     {
         _fadeTimer.Stop();
+        _followTimer.Stop();
         _previewsOn = false;
         foreach (var tile in _tiles)
         {

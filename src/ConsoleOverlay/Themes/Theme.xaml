@@ -69,7 +69,7 @@
                 <ControlTemplate TargetType="Button">
                     <Grid x:Name="Root">
                         <Border x:Name="Halo" Margin="-7" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="4" CornerRadius="25" Opacity="0" />
-                        <Border Background="{StaticResource PaneBrush}" CornerRadius="18" />
+                        <Border x:Name="Pane" Background="{StaticResource PaneBrush}" CornerRadius="18" />
                         <Border x:Name="Hover" Background="{StaticResource FocusFillBrush}" CornerRadius="18" Opacity="0" />
                         <Border x:Name="Fill" Background="{StaticResource FocusFillBrush}" CornerRadius="18" Opacity="0" />
                         <Border x:Name="Ring" Margin="-3" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="21" Opacity="0" />
@@ -78,6 +78,17 @@
                                           VerticalAlignment="Center" />
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <!-- Uid "plain": no pane until focused (menu rows). Uid "selected": a white pill, the current
+                             view or category. -->
+                        <Trigger Property="Uid" Value="plain">
+                            <Setter TargetName="Pane" Property="Background" Value="Transparent" />
+                        </Trigger>
+                        <Trigger Property="Uid" Value="selected">
+                            <Setter TargetName="Pane" Property="Background" Value="{StaticResource SelectedFillBrush}" />
+                            <Setter TargetName="Fill" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="Hover" Property="Visibility" Value="Collapsed" />
+                            <Setter Property="Foreground" Value="{StaticResource SelectedTextBrush}" />
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
@@ -118,6 +129,10 @@
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Root" Property="Opacity" Value="0.8" />
+                        </Trigger>
+                        <!-- Last, so it wins over the focused text color: dark text stays on the white pill. -->
+                        <Trigger Property="Uid" Value="selected">
+                            <Setter Property="Foreground" Value="{StaticResource SelectedTextBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -319,6 +334,180 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- A window tile on All Tabs: a frosted pane holding the window's live preview. Focus: white ring and halo just
+         outside, and the pane brightens. The tile grows on focus (animated from code). -->
+    <Style x:Key="WindowTile" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Halo" Margin="-10" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="6" CornerRadius="34" Opacity="0" />
+                        <Border x:Name="Ring" Margin="-4" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="28" Opacity="0" />
+                        <Border Background="{StaticResource TileBrush}" CornerRadius="24" />
+                        <Border x:Name="Shine" Background="{StaticResource FocusFillBrush}" CornerRadius="24" Opacity="0" />
+                        <ContentPresenter />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A device card on the Sound page. The device in use (Uid "default") is white with dark text. Focus: white
+         ring and halo outside the card. -->
+    <Style x:Key="DeviceCard" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Width" Value="268" />
+        <Setter Property="Height" Value="70" />
+        <Setter Property="Margin" Value="0,0,14,0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Halo" Margin="-9" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="5" CornerRadius="29" Opacity="0" />
+                        <Border x:Name="Ring" Margin="-4" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="24" Opacity="0" />
+                        <Border x:Name="Pane" Background="{StaticResource PaneBrush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1" CornerRadius="20" />
+                        <Border x:Name="Shine" Background="{StaticResource FocusFillBrush}" CornerRadius="20" Opacity="0" />
+                        <ContentPresenter Margin="20,0,16,0" VerticalAlignment="Center" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Uid" Value="default">
+                            <Setter TargetName="Pane" Property="Background" Value="{StaticResource SelectedFillBrush}" />
+                            <Setter TargetName="Shine" Property="Visibility" Value="Collapsed" />
+                            <Setter Property="Foreground" Value="{StaticResource SelectedTextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A big slider (Sound › Master): no pane of its own, just the white ring and halo around it on focus. -->
+    <Style x:Key="SliderButton" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Halo" Margin="-9" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="5" CornerRadius="41" Opacity="0" />
+                        <Border x:Name="Ring" Margin="-4" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="36" Opacity="0" />
+                        <ContentPresenter />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A round icon button (Discord: your mic and deafen). Uid "selected" (muted / deafened) draws it white. -->
+    <Style x:Key="RoundButton" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Width" Value="42" />
+        <Setter Property="Height" Value="42" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Ellipse x:Name="Halo" Margin="-8" Stroke="{StaticResource FocusHaloBrush}" StrokeThickness="5" Opacity="0" />
+                        <Ellipse x:Name="Ring" Margin="-4" Stroke="{DynamicResource AccentBrush}" StrokeThickness="3" Opacity="0" />
+                        <Ellipse x:Name="Disc" Fill="#33FFFFFF" />
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Uid" Value="selected">
+                            <Setter TargetName="Disc" Property="Fill" Value="{StaticResource SelectedFillBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource SelectedTextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Disc" Property="Opacity" Value="0.85" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                            <Setter TargetName="Halo" Property="Opacity" Value="1" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The big heading at the top of a page's right side ("In this call", "Capture"). -->
+    <Style x:Key="DetailTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="36" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Margin" Value="4,0,0,16" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 
     <!-- A view switch above tiles (Recent / Installed). The current one is a white pill. Switched with LT / RT. -->

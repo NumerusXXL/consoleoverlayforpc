@@ -41,7 +41,6 @@ internal sealed class SettingsPage : IOverlayPage
     private readonly StackPanel _detail = new();
     private readonly List<(TextBlock Text, Func<string> Value)> _values = [];
     private readonly Dictionary<string, Action<int>> _cyclers = [];
-    private readonly Dictionary<string, Border> _sectionMarks = [];
     private ISettingsHost? _host;
     private bool _active;
     private string _section = "controls";
@@ -69,8 +68,8 @@ internal sealed class SettingsPage : IOverlayPage
     public SettingsPage(FrameworkElement resources)
     {
         _resources = resources;
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(_detail, 2);
         _root.Children.Add(_list);
@@ -128,7 +127,6 @@ internal sealed class SettingsPage : IOverlayPage
         _detail.Children.Clear();
         _values.Clear();
         _cyclers.Clear();
-        _sectionMarks.Clear();
         _signature = "";
         _builtSection = null;
     }
@@ -279,34 +277,23 @@ internal sealed class SettingsPage : IOverlayPage
     private void BuildList()
     {
         _list.Children.Clear();
-        _sectionMarks.Clear();
         foreach (var section in Sections)
         {
-            var mark = new Border
-            {
-                Width = 3,
-                Height = 18,
-                CornerRadius = new CornerRadius(1.5),
-                Margin = new Thickness(0, 0, 12, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Opacity = 0,
-            };
-            mark.SetResourceReference(Border.BackgroundProperty, "AccentBrush"); // follows accent changes
-            _sectionMarks[section.Id] = mark;
-
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(mark);
-            var icon = Ui.Icon(_resources, section.Icon, 16);
-            icon.Margin = new Thickness(0, 0, 12, 0);
+            var icon = Ui.Icon(_resources, section.Icon, 17);
+            icon.Margin = new Thickness(0, 0, 14, 0);
             content.Children.Add(icon);
-            content.Children.Add(new TextBlock { Text = section.Name, FontSize = 15, VerticalAlignment = VerticalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = section.Name, FontSize = 18, VerticalAlignment = VerticalAlignment.Center });
 
+            // The open section is a white pill; the others have no pane until focused.
             var button = new Button
             {
                 Style = (Style)_resources.FindResource("RowButton"),
                 Content = content,
                 Tag = "sec:" + section.Id,
-                Padding = new Thickness(10, 12, 14, 12),
+                Uid = "plain",
+                Padding = new Thickness(18, 13, 18, 13),
+                Margin = new Thickness(0, 0, 0, 4),
             };
             string id = section.Id;
             button.GotKeyboardFocus += (_, _) => SelectSection(id);
@@ -335,8 +322,8 @@ internal sealed class SettingsPage : IOverlayPage
 
     private void UpdateSectionMarks()
     {
-        foreach (var (id, mark) in _sectionMarks)
-            Ui.Fade(mark, id == _section ? 1 : 0, 160);
+        foreach (var button in _list.Children.OfType<Button>())
+            button.Uid = button.Tag as string == "sec:" + _section ? "selected" : "plain";
     }
 
     // ---- Detail -----------------------------------------------------------------------------
@@ -409,6 +396,12 @@ internal sealed class SettingsPage : IOverlayPage
                 Margin = new Thickness(2, 0, 0, 14),
             });
         }
+
+        _detail.Children.Insert(0, new TextBlock
+        {
+            Text = Sections.FirstOrDefault(x => x.Id == _section)?.Name ?? "",
+            Style = (Style)_resources.FindResource("DetailTitle"),
+        });
 
         switch (_section)
         {
