@@ -133,6 +133,36 @@ internal sealed class DiscordClient
     public VoiceChannel? Channel { get; private set; }
     public string? SelfId { get; private set; }
 
+    /// <summary>You (name and picture), known once Discord is connected, also when you aren't in a call.</summary>
+    public VoiceMember? Self { get; private set; }
+
+    /// <summary>
+    /// A user's picture on Discord's servers. People without one get Discord's own default picture, the way the
+    /// Discord app shows them.
+    /// </summary>
+    public static string PictureUrl(string userId, string? avatar, string? discriminator = null)
+    {
+        if (!string.IsNullOrEmpty(avatar))
+            return $"https://cdn.discordapp.com/avatars/{userId}/{avatar}.png?size=128";
+        int index = discriminator is { Length: > 0 } and not "0" && int.TryParse(discriminator, out int tag) ? tag % 5
+            : ulong.TryParse(userId, out ulong id) ? (int)((id >> 22) % 6) : 0;
+        return $"https://cdn.discordapp.com/embed/avatars/{index}.png";
+    }
+
+    private void SetSelf(JsonNode? user)
+    {
+        var id = user?["id"]?.GetValue<string>();
+        if (id is null) return;
+        SelfId = id;
+        Self = new VoiceMember
+        {
+            Id = id,
+            Name = FirstNonEmpty(user?["global_name"], user?["username"]) ?? "You",
+            AvatarUrl = PictureUrl(id, user?["avatar"]?.GetValue<string>(), user?["discriminator"]?.GetValue<string>()),
+            IsSelf = true,
+        };
+    }
+
     public bool IsSpeaking(string userId) => _speaking.Contains(userId);
 
     public void Configure(string clientId, string clientSecret)
@@ -243,7 +273,9 @@ internal sealed class DiscordClient
 
             await WriteAsync(Opcode.Handshake, new JsonObject { ["v"] = 1, ["client_id"] = _clientId });
             var ready = await _ready.Task.WaitAsync(RequestTimeout);
-            SelfId = ready?["user"]?["id"]?.GetValue<string>();
+            SelfId = null;
+            Self = null;
+            SetSelf(ready?["user"]);
             Log.Write($"Discord: connected on pipe {i}.");
             return true;
         }
@@ -346,7 +378,7 @@ internal sealed class DiscordClient
         try
         {
             var result = await SendAsync("AUTHENTICATE", new JsonObject { ["access_token"] = accessToken });
-            SelfId = result?["user"]?["id"]?.GetValue<string>() ?? SelfId;
+            SetSelf(result?["user"]);
             return true;
         }
         catch (DiscordException ex)
@@ -465,7 +497,7 @@ internal sealed class DiscordClient
             {
                 Id = userId,
                 Name = FirstNonEmpty(state["nick"], user?["global_name"], user?["username"]) ?? "Someone",
-                AvatarUrl = avatar is null ? null : $"https://cdn.discordapp.com/avatars/{userId}/{avatar}.png?size=64",
+                AvatarUrl = PictureUrl(userId, avatar, user?["discriminator"]?.GetValue<string>()),
                 IsSelf = userId == SelfId,
                 Volume = (int)Math.Round(state["volume"]?.GetValue<double>() ?? 100),
                 MutedForMe = state["mute"]?.GetValue<bool>() ?? false,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -32,7 +33,9 @@ internal sealed class DiscordPage : IOverlayPage
     public const string SetupGuideUrl = "https://github.com/NumerusXXL/consoleoverlayforpc#discord-voice-controls";
     private const string DeveloperPortalUrl = "https://discord.com/developers/applications";
     private static readonly Color SpeakingColor = Color.FromRgb(0x3B, 0xD6, 0x7F);
-    private static readonly Dictionary<string, BitmapImage> Avatars = []; // small, and the same people come back
+    // Pictures are small and the same people come back, so each is downloaded once.
+    private static readonly Dictionary<string, Task<BitmapSource?>> Avatars = [];
+    private static readonly System.Net.Http.HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     private enum View { People, Person, Channels, Servers, Audio, InputDevices, OutputDevices }
 
@@ -437,14 +440,15 @@ internal sealed class DiscordPage : IOverlayPage
     /// </summary>
     private Border YouCard(VoiceChannel? channel)
     {
-        var self = channel?.Members.FirstOrDefault(m => m.IsSelf);
+        var inCall = channel?.Members.FirstOrDefault(m => m.IsSelf);
+        var self = inCall ?? _client.Self; // your own picture shows also when you aren't in a call
         var ring = new Ellipse { Width = 52, Height = 52, Stroke = new SolidColorBrush(SpeakingColor), StrokeThickness = 3, Opacity = 0 };
         var avatar = self is null
             ? new Grid { Width = 52, Height = 52, Children = { new Ellipse { Fill = (Brush)_resources.FindResource("TrackBrush") } } }
             : Avatar(self, 44, ring);
         avatar.Margin = new Thickness(0, 0, 14, 0);
-        if (self is not null)
-            _members[self.Id] = new MemberRow { Member = self, Ring = ring, Value = new TextBlock(), Status = new TextBlock() };
+        if (inCall is not null)
+            _members[inCall.Id] = new MemberRow { Member = inCall, Ring = ring, Value = new TextBlock(), Status = new TextBlock() };
 
         var name = new TextBlock { Text = self?.Name ?? "You", FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
         var where = new TextBlock { Style = (Style)_resources.FindResource("RowHint"), TextTrimming = TextTrimming.CharacterEllipsis };
@@ -965,10 +969,40 @@ internal sealed class DiscordPage : IOverlayPage
         });
         var avatar = new Grid { Width = ring.Width, Height = ring.Height, VerticalAlignment = VerticalAlignment.Center };
         avatar.Children.Add(initial);
-        if (LoadAvatar(member.AvatarUrl) is { } picture)
-            avatar.Children.Add(new Ellipse { Width = size, Height = size, Fill = new ImageBrush(picture) { Stretch = Stretch.UniformToFill } });
+        var picture = new Ellipse { Width = size, Height = size, Opacity = 0 };
+        avatar.Children.Add(picture);
         avatar.Children.Add(ring);
+        if (member.AvatarUrl is { } url)
+            ShowPicture(picture, initial, LoadAvatar(url));
         return avatar;
+    }
+
+    /// <summary>Puts the downloaded picture over the initial, at once if it is already here, else when it arrives.</summary>
+    private static void ShowPicture(Ellipse picture, UIElement initial, Task<BitmapSource?> download)
+    {
+        void Show(BitmapSource image, bool fade)
+        {
+            var brush = new ImageBrush(image) { Stretch = Stretch.UniformToFill };
+            RenderOptions.SetBitmapScalingMode(brush, BitmapScalingMode.HighQuality);
+            brush.Freeze();
+            picture.Fill = brush;
+            if (fade)
+                picture.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(200))));
+            else
+                picture.Opacity = 1;
+            initial.Visibility = Visibility.Hidden;
+        }
+
+        if (download.IsCompletedSuccessfully)
+        {
+            if (download.Result is { } ready) Show(ready, fade: false);
+            return;
+        }
+        download.ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully && t.Result is { } image)
+                picture.Dispatcher.BeginInvoke(() => Show(image, fade: true));
+        }, TaskScheduler.Default);
     }
 
     // ---- Live updates -----------------------------------------------------------------------
@@ -1020,25 +1054,33 @@ internal sealed class DiscordPage : IOverlayPage
             new DoubleAnimation(target, new Duration(TimeSpan.FromMilliseconds(speaking ? 80 : 260))));
     }
 
-    private static BitmapImage? LoadAvatar(string? url)
+    private static Task<BitmapSource?> LoadAvatar(string url)
     {
-        if (url is null) return null;
-        if (Avatars.TryGetValue(url, out var cached)) return cached;
+        // A download that failed (no internet just then) is tried again the next time.
+        if (Avatars.TryGetValue(url, out var known) && !(known.IsCompleted && (!known.IsCompletedSuccessfully || known.Result is null)))
+            return known;
+        var download = DownloadAvatar(url);
+        Avatars[url] = download;
+        return download;
+    }
+
+    private static async Task<BitmapSource?> DownloadAvatar(string url)
+    {
         try
         {
-            // WPF downloads it in the background; the initial shows until it arrives.
+            byte[] bytes = await Http.GetByteArrayAsync(url).ConfigureAwait(false);
             var image = new BitmapImage();
             image.BeginInit();
-            image.UriSource = new Uri(url);
-            image.DecodePixelWidth = 96;
+            image.StreamSource = new System.IO.MemoryStream(bytes);
+            image.DecodePixelWidth = 128;
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.EndInit();
-            Avatars[url] = image;
+            image.Freeze(); // made off the UI thread, used on it
             return image;
         }
         catch (Exception ex)
         {
-            Log.Write($"Discord: could not load an avatar: {ex.Message}");
+            Log.Write($"Discord: could not load a picture: {ex.Message}");
             return null;
         }
     }

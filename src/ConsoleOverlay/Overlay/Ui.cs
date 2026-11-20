@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 
 namespace ConsoleOverlay.Overlay;
 
@@ -146,4 +147,46 @@ internal static class Ui
                 return true;
         return false;
     }
+
+    /// <summary>
+    /// A tile's two colors: the icon's strongest color, and a darker shade of it, for the gradient behind the icon.
+    /// Slate grey when the icon has none (or there is no icon).
+    /// </summary>
+    public static (Color Light, Color Dark) TileColors(ImageSource? icon)
+    {
+        var fallback = (Color.FromRgb(0x4A, 0x54, 0x68), Color.FromRgb(0x23, 0x29, 0x3A));
+        if (icon is not BitmapSource bitmap) return fallback;
+        try
+        {
+            var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+            int width = converted.PixelWidth, height = converted.PixelHeight;
+            var pixels = new byte[width * height * 4];
+            converted.CopyPixels(pixels, width * 4, 0);
+
+            // Average the colorful, mostly opaque pixels, weighting each by how colorful it is.
+            double r = 0, g = 0, b = 0, weight = 0;
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                if (pixels[i + 3] < 160) continue;
+                double pb = pixels[i], pg = pixels[i + 1], pr = pixels[i + 2];
+                double max = Math.Max(pr, Math.Max(pg, pb)), min = Math.Min(pr, Math.Min(pg, pb));
+                double saturation = max <= 0 ? 0 : (max - min) / max;
+                if (saturation < 0.25 || max < 40) continue;
+                double w = saturation * saturation;
+                r += pr * w; g += pg * w; b += pb * w; weight += w;
+            }
+            if (weight <= 0) return fallback;
+            var light = Color.FromRgb((byte)(r / weight), (byte)(g / weight), (byte)(b / weight));
+            light = Scale(light, 230.0 / Math.Max(1.0, Math.Max(light.R, Math.Max(light.G, (double)light.B)))); // bright, not neon
+            return (light, Scale(light, 0.38));
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private static Color Scale(Color color, double factor) => Color.FromRgb(
+        (byte)Math.Clamp(color.R * factor, 0, 255), (byte)Math.Clamp(color.G * factor, 0, 255), (byte)Math.Clamp(color.B * factor, 0, 255));
+
 }
