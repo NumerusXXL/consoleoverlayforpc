@@ -597,7 +597,7 @@ internal sealed class SoundPage : IOverlayPage
     {
         var margin = new Thickness(0, 0, 16, 0);
         if (app.ProcessId != 0 && Interop.ShellIcons.ExePath(app.ProcessId) is { } path
-            && Interop.ShellIcons.ForFile(path, 64) is { } icon)
+            && Interop.ShellIcons.ForFile(path, 256) is { } icon)
         {
             var image = new Image { Source = icon, Width = 44, Height = 44, Margin = margin };
             RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
