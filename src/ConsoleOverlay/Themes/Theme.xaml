@@ -1,12 +1,13 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Palette: monochrome, the focused thing is the brightest thing on screen. -->
-    <SolidColorBrush x:Key="TextBrush" Color="#FFF2F4F8" />
-    <SolidColorBrush x:Key="SoftTextBrush" Color="#FFC9D0DE" />
-    <SolidColorBrush x:Key="SubtleTextBrush" Color="#FFA3ABBC" />
-    <SolidColorBrush x:Key="IconBrush" Color="#FF8A93A6" />
-    <SolidColorBrush x:Key="SelectedFillBrush" Color="#FFF2F4F8" />
+    <!-- Palette (v1.1): white text and see-through white surfaces straight on the blurred game, so its colors glow
+         through, like a console home screen. The focused thing is the brightest thing on screen. -->
+    <SolidColorBrush x:Key="TextBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="SoftTextBrush" Color="#DEFFFFFF" />
+    <SolidColorBrush x:Key="SubtleTextBrush" Color="#ADFFFFFF" />
+    <SolidColorBrush x:Key="IconBrush" Color="#B8FFFFFF" />
+    <SolidColorBrush x:Key="SelectedFillBrush" Color="#FFFFFFFF" />
     <SolidColorBrush x:Key="SelectedTextBrush" Color="#FF0B0E16" />
     <SolidColorBrush x:Key="DimBrush" Color="#80080A10" />
     <SolidColorBrush x:Key="OpaqueBackdropBrush" Color="#FF0B0D12" />
@@ -28,15 +29,27 @@
         <GradientStop Offset="0.35" Color="#14FFFFFF" />
         <GradientStop Offset="1" Color="#0AFFFFFF" />
     </LinearGradientBrush>
+    <!-- Frosted dock: a light, see-through pill floating over the game. -->
     <LinearGradientBrush x:Key="DockBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#C8232835" />
-        <GradientStop Offset="1" Color="#D8111419" />
+        <GradientStop Offset="0" Color="#38FFFFFF" />
+        <GradientStop Offset="1" Color="#24FFFFFF" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="DockEdgeBrush" Color="#2EFFFFFF" />
+    <!-- Darkens the bottom (behind the dock and buttons) and a little at the top (behind the title and clock). -->
+    <LinearGradientBrush x:Key="ShadeBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#38000000" />
+        <GradientStop Offset="0.3" Color="#00000000" />
+        <GradientStop Offset="0.62" Color="#08000000" />
+        <GradientStop Offset="1" Color="#8C000000" />
     </LinearGradientBrush>
     <SolidColorBrush x:Key="HairlineBrush" Color="#14FFFFFF" />
-    <SolidColorBrush x:Key="FocusFillBrush" Color="#14FFFFFF" />
-    <SolidColorBrush x:Key="TileBrush" Color="#FF262C3A" />
-    <SolidColorBrush x:Key="DangerTextBrush" Color="#FFF0A5A5" />
-    <SolidColorBrush x:Key="TrackBrush" Color="#FF3A4256" />
+    <!-- Rows and tiles are frosted panes: always faintly visible, brighter with focus. -->
+    <SolidColorBrush x:Key="PaneBrush" Color="#17FFFFFF" />
+    <SolidColorBrush x:Key="FocusFillBrush" Color="#2BFFFFFF" />
+    <SolidColorBrush x:Key="FocusHaloBrush" Color="#2EFFFFFF" />
+    <SolidColorBrush x:Key="TileBrush" Color="#1FFFFFFF" />
+    <SolidColorBrush x:Key="DangerTextBrush" Color="#FFFFB4B4" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#38FFFFFF" />
 
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
     <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
@@ -47,17 +60,19 @@
     <Style x:Key="RowButton" TargetType="Button">
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Foreground" Value="{StaticResource SoftTextBrush}" />
-        <Setter Property="Padding" Value="18,14" />
-        <Setter Property="Margin" Value="0,0,0,2" />
+        <Setter Property="Padding" Value="20,15" />
+        <Setter Property="Margin" Value="0,0,0,8" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Grid x:Name="Root">
-                        <Border x:Name="Hover" Background="{StaticResource FocusFillBrush}" CornerRadius="12" Opacity="0" />
-                        <Border x:Name="Fill" Background="{StaticResource FocusFillBrush}" CornerRadius="12" Opacity="0" />
-                        <Border x:Name="Ring" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="12" Opacity="0" />
+                        <Border x:Name="Halo" Margin="-7" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="4" CornerRadius="25" Opacity="0" />
+                        <Border Background="{StaticResource PaneBrush}" CornerRadius="18" />
+                        <Border x:Name="Hover" Background="{StaticResource FocusFillBrush}" CornerRadius="18" Opacity="0" />
+                        <Border x:Name="Fill" Background="{StaticResource FocusFillBrush}" CornerRadius="18" Opacity="0" />
+                        <Border x:Name="Ring" Margin="-3" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="21" Opacity="0" />
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="Center" />
@@ -81,11 +96,13 @@
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            <Setter Property="Panel.ZIndex" Value="1" />
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Fill" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
                                         <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.EnterActions>
@@ -94,6 +111,7 @@
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Fill" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2" />
                                         <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2" />
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.ExitActions>
@@ -118,9 +136,10 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Grid>
-                        <Border x:Name="Ring" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="17" Opacity="0" />
-                        <Border Margin="5" Background="{StaticResource TileBrush}" CornerRadius="14" />
-                        <Border x:Name="Shine" Margin="5" Background="{StaticResource FocusFillBrush}" CornerRadius="14" Opacity="0" />
+                        <Border x:Name="Halo" Margin="-2" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="4" CornerRadius="28" Opacity="0" />
+                        <Border x:Name="Ring" Margin="2" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="24" Opacity="0" />
+                        <Border Margin="5" Background="{StaticResource TileBrush}" CornerRadius="21" />
+                        <Border x:Name="Shine" Margin="5" Background="{StaticResource FocusFillBrush}" CornerRadius="21" Opacity="0" />
                         <ContentPresenter Margin="19,17" />
                     </Grid>
                     <ControlTemplate.Triggers>
@@ -146,6 +165,8 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.EnterActions>
@@ -153,6 +174,8 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.ExitActions>
@@ -240,9 +263,115 @@
 
     <Style x:Key="PageTitle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
-        <Setter Property="FontSize" Value="26" />
-        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+
+    <!-- Next to the page title: "5 open", "Library · 48 installed". -->
+    <Style x:Key="PageSubtitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+    </Style>
+
+    <!-- The big name under a row of tiles (the focused game or window). -->
+    <Style x:Key="HeroTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="44" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+
+    <!-- A game cover on the Steam page. Focus: a white ring with a soft halo just outside the art. The cover itself
+         grows on focus (animated from code). -->
+    <Style x:Key="CoverButton" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Margin" Value="0,0,18,0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Halo" Margin="-10" BorderBrush="{StaticResource FocusHaloBrush}" BorderThickness="6" CornerRadius="32" Opacity="0" />
+                        <Border x:Name="Ring" Margin="-4" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="3" CornerRadius="26" Opacity="0" />
+                        <ContentPresenter />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.14" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                        <DoubleAnimation Storyboard.TargetName="Halo" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A view switch above tiles (Recent / Installed). The current one is a white pill. Switched with LT / RT. -->
+    <Style x:Key="TabPill" TargetType="Button">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{StaticResource SoftTextBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Pill" Height="34" Padding="16,0" CornerRadius="17" Background="Transparent">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Pill" Property="Background" Value="{StaticResource PaneBrush}" />
+                        </Trigger>
+                        <Trigger Property="Tag" Value="selected">
+                            <Setter TargetName="Pill" Property="Background" Value="{StaticResource SelectedFillBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource SelectedTextBrush}" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- "A Play", "X Game page": what the controller buttons do, as big pills. The primary one is white. -->
+    <Style x:Key="ActionPill" TargetType="Button">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Pill" Height="50" Padding="11,0,24,0" CornerRadius="25" Background="#29FFFFFF">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Pill" Property="Background" Value="#3DFFFFFF" />
+                        </Trigger>
+                        <Trigger Property="Tag" Value="primary">
+                            <Setter TargetName="Pill" Property="Background" Value="{StaticResource SelectedFillBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Pill" Property="Opacity" Value="0.8" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="SectionLabel" TargetType="TextBlock">
@@ -252,7 +381,8 @@
     </Style>
 
     <Style x:Key="RowTitle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
     <Style x:Key="RowValue" TargetType="TextBlock">
@@ -262,7 +392,7 @@
     </Style>
 
     <Style x:Key="RowHint" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Margin" Value="0,2,0,0" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />

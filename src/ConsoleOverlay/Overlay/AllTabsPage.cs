@@ -57,7 +57,8 @@ internal sealed class AllTabsPage : IOverlayPage
     /// <summary>Close the overlay and switch to this window.</summary>
     public event Action<IntPtr>? SwitchTo;
 
-    public event Action? HintChanged { add { } remove { } }
+    /// <summary>The hint never changes; raised when the window count (the subtitle) does.</summary>
+    public event Action? HintChanged;
 
     public AllTabsPage(Window window, ScrollViewer scroller)
     {
@@ -81,6 +82,8 @@ internal sealed class AllTabsPage : IOverlayPage
     }
 
     public Panel Content => _panel;
+
+    public string? Subtitle => _windows.Count == 1 ? "1 open" : $"{_windows.Count} open";
 
     public string Hint => "A switch to window · X close window · B back to game · LB / RB other pages";
 
@@ -191,6 +194,7 @@ internal sealed class AllTabsPage : IOverlayPage
         HidePreviews();
         _windows = OpenWindows.List();
         Build();
+        HintChanged?.Invoke();
 
         var buttons = _panel.Children.OfType<Button>().ToList();
         if (buttons.Count > 0)

@@ -20,8 +20,8 @@ using ConsoleOverlay.Settings;
 namespace ConsoleOverlay.Overlay;
 
 /// <summary>
-/// The overlay: a blurred snapshot of the game, one large page card, and the dock of pages at the bottom.
-/// Pages: All Tabs (opens first), Sound, Discord, Settings.
+/// The overlay: a blurred snapshot of the game, the page laid out full width over it, and the dock of pages at the
+/// bottom. Pages: All Tabs (opens first), Steam, Shortcuts, Sound, Discord, Settings.
 /// </summary>
 public partial class OverlayWindow : Window
 {
@@ -38,9 +38,9 @@ public partial class OverlayWindow : Window
         public SolidColorBrush DockInk { get; set; } = null!;
     }
 
-    private Color PillColor = Color.FromRgb(0xF2, 0xF4, 0xF8);
+    private Color PillColor = Colors.White;
     private static readonly Color PillInkColor = Color.FromRgb(0x0B, 0x0E, 0x16);
-    private static readonly Color IconColor = Color.FromRgb(0x8A, 0x93, 0xA6);
+    private static readonly Color IconColor = Color.FromArgb(0xD9, 0xFF, 0xFF, 0xFF);
     private int _visibilityToken;
 
     private readonly List<Page> _pages = [];
@@ -120,6 +120,11 @@ public partial class OverlayWindow : Window
         _tabs.BackToGame += () => CloseRequested?.Invoke();
         _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
         AddPage("All Tabs", "\uE7C4", _tabs);
+
+        var steam = new SteamPage(this);
+        steam.BackToGame += () => CloseRequested?.Invoke();
+        steam.CloseThen += action => CloseThenRequested?.Invoke(action);
+        AddPage("Steam", "\uE8F1", steam);
 
         _shortcuts = new ShortcutsPage(this);
         _shortcuts.CloseThen += action => CloseThenRequested?.Invoke(action);
@@ -263,6 +268,7 @@ public partial class OverlayWindow : Window
 
             TitleOffset.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(direction * 16, 0, duration) { EasingFunction = ease });
             PageTitleText.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(260))));
+            PageSubtitleText.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(320))));
         }
 
         if (focusFirst)
@@ -381,6 +387,7 @@ public partial class OverlayWindow : Window
             hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bA\b", "Enter");
             hint = System.Text.RegularExpressions.Regex.Replace(hint, @"\bB\b", "Esc");
         }
+        PageSubtitleText.Text = page.Logic?.Subtitle ?? "";
         if (hint == _shownHint) return;
         _shownHint = hint;
         HintChips.Fill(PageHint, this, hint);
@@ -548,7 +555,8 @@ public partial class OverlayWindow : Window
             "12h" => now.ToString("h:mm tt", CultureInfo.InvariantCulture),
             _ => now.ToString("t", CultureInfo.CurrentCulture),
         };
-        ClockText.Text = $"{time}  ·  {date}";
+        ClockText.Text = time;
+        DateText.Text = date;
     }
 
     /// <summary>
@@ -583,9 +591,9 @@ public partial class OverlayWindow : Window
         // so its text isn't redrawn at a new size every frame.
         CacheWhileMoving(PageCard, slow.TimeSpan + delayed);
         PageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed });
-        PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.94, 1, slow) { EasingFunction = settle, BeginTime = delayed });
-        PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.94, 1, slow) { EasingFunction = settle, BeginTime = delayed });
-        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(36, 0, slow) { EasingFunction = ease, BeginTime = delayed });
+        PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.97, 1, slow) { EasingFunction = settle, BeginTime = delayed });
+        PageScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.97, 1, slow) { EasingFunction = settle, BeginTime = delayed });
+        PageOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(24, 0, slow) { EasingFunction = ease, BeginTime = delayed });
 
         Dock.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, medium) { BeginTime = delayed + delayed });
         DockOffset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(48, 0, slow) { EasingFunction = settle, BeginTime = delayed + delayed });

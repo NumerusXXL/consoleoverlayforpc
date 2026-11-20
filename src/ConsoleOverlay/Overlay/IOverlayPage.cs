@@ -17,7 +17,10 @@ internal interface IOverlayPage
     /// <summary>The button hints shown under the page.</summary>
     string Hint { get; }
 
-    /// <summary>Raised when <see cref="Hint"/> changes while the page is shown.</summary>
+    /// <summary>Shown small next to the page title ("5 open"). Null for none.</summary>
+    string? Subtitle => null;
+
+    /// <summary>Raised when <see cref="Hint"/> or <see cref="Subtitle"/> changes while the page is shown.</summary>
     event Action? HintChanged;
 
     /// <summary>The page came into view. <paramref name="gameWindow"/> is the window the overlay opened over.</summary>
