@@ -63,8 +63,10 @@
                            Style="{StaticResource PageSubtitle}" />
             </DockPanel>
 
-            <ScrollViewer Grid.Row="1" x:Name="PageScroller" Margin="0,26,0,0" VerticalScrollBarVisibility="Hidden" Focusable="False">
-                <Grid x:Name="PageHost" />
+            <!-- The scroller reaches 16 past the page on every side and the page sits 16 inside it, so focus rings and
+                 halos drawn just outside a row or tile at the page's edge aren't cut off by the scroller. -->
+            <ScrollViewer Grid.Row="1" x:Name="PageScroller" Margin="-16,10,-16,0" VerticalScrollBarVisibility="Hidden" Focusable="False">
+                <Grid x:Name="PageHost" Margin="16" />
             </ScrollViewer>
 
             <!-- Button prompts, drawn like a console's: a colored A, a red B, LB / RB pills... Kept small, at the

@@ -409,6 +409,8 @@ internal sealed class SettingsPage : IOverlayPage
             case "look": BuildLook(); break;
             case "startup": BuildStartup(); break;
             case "games": BuildGames(); break;
+            case "capture": BuildCapture(); break;
+            case "performance": BuildPerformance(); break;
             case "discord": if (_editing is null) BuildDiscord(); else BuildField(); break;
             default: BuildAbout(); break;
         }
@@ -611,6 +613,66 @@ internal sealed class SettingsPage : IOverlayPage
         {
             return null;
         }
+    }
+
+    // ---- Capture ----------------------------------------------------------------------------
+
+    private void BuildCapture()
+    {
+        bool nvidia = Capture.CaptureService.NvidiaGpu;
+        Header("Recorder", first: true);
+        Note(nvidia
+            ? "NVIDIA GPU found. Clips and recording use the NVIDIA app's in-game overlay (Instant Replay for clips)."
+            : "No NVIDIA GPU, so the NVIDIA app is not supported here. Xbox Game Bar records instead.");
+        Choice("recorder", "Clips and recording", "Who keeps the last moments and records",
+            [(Capture.CaptureService.Nvidia, nvidia ? "NVIDIA app" : "NVIDIA app (not supported)"), (Capture.CaptureService.GameBar, "Xbox Game Bar")],
+            () => Settings.Recorder, v => Settings.Recorder = v);
+        Row("game-bar-settings", "Game Bar capture settings", "Turn on \"Record what happened\" for clips. Opens Windows Settings", () => "",
+            () => OpenUrl("ms-settings:gaming-gamedvr"));
+
+        Header("Screenshots", first: false);
+        Row("captures-folder", "Save to", "Screenshots from Console Overlay. Opens the folder", () => "Videos › Captures",
+            () => CloseThen?.Invoke(Capture.CaptureService.OpenFolder));
+    }
+
+    // ---- Performance ------------------------------------------------------------------------
+
+    private void BuildPerformance()
+    {
+        Header("Stats in the corner", first: true);
+        Toggle("corner-stats", "Show while playing", "Frame rate, CPU and GPU in a small box. Y on the Performance page too",
+            () => Settings.CornerStats, on => Settings.CornerStats = on);
+        Choice("corner-position", "Corner", null,
+            [("TopLeft", "Top left"), ("TopRight", "Top right"), ("BottomLeft", "Bottom left"), ("BottomRight", "Bottom right")],
+            () => Settings.CornerStatsPosition, v => Settings.CornerStatsPosition = v);
+        Note("Games in exclusive fullscreen draw over the box. Borderless and windowed games show it.");
+
+        Header("Frame rate", first: false);
+        var problem = Perf.PerfMonitor.Instance.FrameProblem;
+        if (problem == "permission")
+        {
+            Row("allow-frames", "Allow counting frames for good", "Windows asks for admin once. Then sign out and back in", () => "", () =>
+            {
+                ShowMessage(Perf.FrameCounter.AllowForThisAccount()
+                    ? "Done. Sign out of Windows and back in, and the frame rate shows without admin rights."
+                    : "Windows didn't allow it.", error: false);
+            });
+            Row("restart-admin", "Restart as administrator", "Counts frames right away, until Console Overlay restarts", () => "", () =>
+            {
+                if (_host?.RestartAsAdmin() == false)
+                    ShowMessage("Windows didn't restart it as administrator.", error: true);
+            });
+        }
+        else
+        {
+            Note(problem is null
+                ? "Counted from what the game hands to Windows, for DirectX games. Costs almost nothing."
+                : "Windows wouldn't let Console Overlay count frames. The log has the reason.");
+        }
+        Header("Graphics card", first: false);
+        Note(Capture.CaptureService.NvidiaGpu
+            ? $"{Perf.Nvml.GpuName ?? "NVIDIA GPU"}: load, temperature, clock and video memory come from the NVIDIA driver."
+            : "GPU temperature, clock and video memory: not supported (they need an NVIDIA GPU). The load still shows.");
     }
 
     // ---- Discord ----------------------------------------------------------------------------

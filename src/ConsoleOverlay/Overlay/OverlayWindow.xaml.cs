@@ -53,6 +53,8 @@ public partial class OverlayWindow : Window
     private SettingsPage _settings = null!;
     private SoundPage _sound = null!;
     private ShortcutsPage _shortcuts = null!;
+    private CapturePage _capture = null!;
+    private PerformancePage _performance = null!;
 
     /// <summary>True while a dialog of ours (a file picker) is open: losing focus to it must not close the overlay.</summary>
     public bool KeepOpen { get; private set; }
@@ -70,6 +72,9 @@ public partial class OverlayWindow : Window
     public event Action<IntPtr>? SwitchToWindowRequested;
     /// <summary>Close the overlay without giving focus back to the game, then run the action.</summary>
     public event Action<Action>? CloseThenRequested;
+
+    /// <summary>Close, give the game its focus back, then run the action (a screenshot, a recorder shortcut).</summary>
+    public event Action<Action>? BackToGameThenRequested;
 
     public OverlayWindow()
     {
@@ -131,6 +136,10 @@ public partial class OverlayWindow : Window
         _shortcuts.KeepOpen += keep => KeepOpen = keep;
         AddPage("Shortcuts", "\uE71D", _shortcuts);
 
+        var media = new MediaPage(this);
+        media.OpenShortcuts += () => SelectPage(_pages.FindIndex(p => p.Logic == _shortcuts), focusFirst: true);
+        AddPage("Media", "\uE8D6", media);
+
         _sound = new SoundPage(this);
         AddPage("Sound", "\uE767", _sound);
 
@@ -138,6 +147,14 @@ public partial class OverlayWindow : Window
         _discord.CloseThen += action => CloseThenRequested?.Invoke(action);
         _discord.OpenSettings += () => OpenSettingsSection("discord");
         AddPage("Discord", "\uE8BD", _discord);
+
+        _capture = new CapturePage(this);
+        _capture.BackToGameThen += action => BackToGameThenRequested?.Invoke(action);
+        _capture.CloseThen += action => CloseThenRequested?.Invoke(action);
+        AddPage("Capture", "\uE722", _capture);
+
+        _performance = new PerformancePage(this);
+        AddPage("Performance", "\uEC4A", _performance);
 
         _settings = new SettingsPage(this);
         _settings.CloseThen += action => CloseThenRequested?.Invoke(action);
@@ -149,6 +166,8 @@ public partial class OverlayWindow : Window
     {
         _settings.SetHost(host);
         _shortcuts.SetHost(host);
+        _capture.SetHost(host);
+        _performance.SetHost(host);
     }
 
     public void SignOutOfDiscord() => _discord.SignOut();

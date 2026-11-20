@@ -55,6 +55,15 @@ public sealed class AppSettings
     /// <summary>Apps, games and links on the Shortcuts page, in order.</summary>
     public List<LaunchShortcut> Shortcuts { get; set; } = [];
 
+    /// <summary>Frame rate, CPU and GPU in a small box in a corner while you play (Performance › Y).</summary>
+    public bool CornerStats { get; set; }
+
+    /// <summary>Which corner: "TopLeft", "TopRight", "BottomLeft" or "BottomRight".</summary>
+    public string CornerStatsPosition { get; set; } = "TopLeft";
+
+    /// <summary>What saves clips and recordings: "NVIDIA" (the NVIDIA app's Instant Replay and recording).</summary>
+    public string Recorder { get; set; } = "NVIDIA";
+
     public ControllerButtons ParseCombo(out List<string> unknown)
     {
         unknown = [];

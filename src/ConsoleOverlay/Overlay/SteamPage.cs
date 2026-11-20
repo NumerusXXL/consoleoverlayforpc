@@ -62,6 +62,7 @@ internal sealed class SteamPage : IOverlayPage
     private int _running;
     private View _view = View.Recent;
     private int _loadToken;
+    private int _artToken; // changes when the covers on screen are replaced, so late decodes are dropped
 
     /// <summary>Close the overlay and give focus back to the game.</summary>
     public event Action? BackToGame;
@@ -127,6 +128,7 @@ internal sealed class SteamPage : IOverlayPage
     {
         _active = false;
         _loadToken++;
+        _artToken++;
         // Covers are decoded again next time (from Windows' file cache, so it's quick); this keeps memory low
         // while you play.
         foreach (var cover in _shown)
@@ -182,6 +184,9 @@ internal sealed class SteamPage : IOverlayPage
             || !games.Select(g => (g.AppId, g.LastPlayed)).SequenceEqual(_games.Select(g => (g.AppId, g.LastPlayed)));
         _steamFolder = folder;
         _games = games;
+        if (!_loaded && folder is not null)
+            Log.Write($"Steam: {games.Count} games installed, {games.Count(g => g.CoverPath is not null)} with a cover, "
+                + $"{games.Count(g => g.CoverPath is null && g.HeaderPath is not null)} with only a header picture.");
         _loaded = true;
         if (timer.ElapsedMilliseconds > 200)
             Log.Write($"Reading the Steam library took {timer.ElapsedMilliseconds} ms ({games.Count} games).");
@@ -234,6 +239,7 @@ internal sealed class SteamPage : IOverlayPage
     {
         _covers.Children.Clear();
         _shown.Clear();
+        _artToken++;
         _strip.ScrollToHorizontalOffset(0);
 
         if (_steamFolder is null)
@@ -324,8 +330,7 @@ internal sealed class SteamPage : IOverlayPage
             Content = layers,
             Width = CoverWidth,
             Height = CoverHeight,
-            ToolTip = game.Name,
-            VerticalAlignment = VerticalAlignment.Bottom,
+            VerticalAlignment = VerticalAlignment.Bottom, // no tooltip: the name is shown big right below
         };
         var cover = new Cover { Game = game, Button = button, Art = art };
         button.Click += (_, _) => Primary(cover);
@@ -412,7 +417,8 @@ internal sealed class SteamPage : IOverlayPage
         }
         if (wanted.Count == 0) return;
 
-        int token = _loadToken;
+        // Its own token: reading the library again (which happens on every visit) must not throw away covers.
+        int token = _artToken;
         double pixelsPerUnit = VisualTreeHelper.GetDpi(_root).DpiScaleX * 2; // the UI is scaled up for TVs
         int decodeWidth = (int)Math.Clamp(FocusedWidth * pixelsPerUnit, 180, 600);
         var dispatcher = _root.Dispatcher;
@@ -426,7 +432,7 @@ internal sealed class SteamPage : IOverlayPage
                 if (image is null) continue;
                 dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
                 {
-                    if (token != _loadToken) return;
+                    if (token != _artToken) return;
                     var brush = new ImageBrush(image) { Stretch = Stretch.UniformToFill };
                     brush.Freeze();
                     cover.Art.Background = brush;
@@ -439,9 +445,11 @@ internal sealed class SteamPage : IOverlayPage
     {
         try
         {
+            // Read through a stream rather than a file URI, which breaks on paths with characters like '#'.
+            using var file = new System.IO.MemoryStream(System.IO.File.ReadAllBytes(path));
             var image = new BitmapImage();
             image.BeginInit();
-            image.UriSource = new Uri(path);
+            image.StreamSource = file;
             image.DecodePixelWidth = width;
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
