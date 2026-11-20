@@ -110,6 +110,7 @@ public partial class OverlayWindow : Window
             _frames.Stop();
             Snapshot.Source = null;
             SnapshotBlurred.Source = null;
+            ShowWindowBackdrop(null, instant: true);
             DeactivateLogic();
             _tabs.Clear();
         };
@@ -117,13 +118,60 @@ public partial class OverlayWindow : Window
 
     public IntPtr Handle => new WindowInteropHelper(this).Handle;
 
+    private bool _backdropOnA;
+
+    /// <summary>
+    /// Fades a picture in behind the page (All Tabs: the focused window), over the usual background. Null fades back
+    /// to the usual one.
+    /// </summary>
+    private void ShowWindowBackdrop(BitmapSource? picture) => ShowWindowBackdrop(picture, instant: false);
+
+    private void ShowWindowBackdrop(BitmapSource? picture, bool instant)
+    {
+        var duration = TimeSpan.FromMilliseconds(instant ? 0 : 320);
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        var current = _backdropOnA ? WindowBackdropA : WindowBackdropB;
+        var next = _backdropOnA ? WindowBackdropB : WindowBackdropA;
+
+        if (picture is null)
+        {
+            foreach (var layer in new[] { WindowBackdropA, WindowBackdropB })
+            {
+                var fade = new DoubleAnimation(0, duration) { EasingFunction = ease };
+                fade.Completed += (_, _) =>
+                {
+                    if (layer.Opacity == 0) layer.Source = null;
+                };
+                layer.BeginAnimation(OpacityProperty, fade);
+            }
+            if (instant)
+            {
+                WindowBackdropA.Source = WindowBackdropB.Source = null;
+            }
+            return;
+        }
+        if (current.Source == picture && current.Opacity > 0) return;
+
+        // The new picture fades in on top; the old one fades out under it.
+        next.Source = picture;
+        Panel.SetZIndex(next, 1);
+        Panel.SetZIndex(current, 0);
+        next.BeginAnimation(OpacityProperty, new DoubleAnimation(1, duration) { EasingFunction = ease });
+        current.BeginAnimation(OpacityProperty, new DoubleAnimation(0, duration) { EasingFunction = ease, BeginTime = duration / 2 });
+        _backdropOnA = !_backdropOnA;
+    }
+
     // ---- Pages ------------------------------------------------------------------------------
 
     private void BuildPages()
     {
+        DockLeftBumper.Content = ButtonGlyphs.Create("LB", 26);
+        DockRightBumper.Content = ButtonGlyphs.Create("RB", 26);
+
         _tabs = new AllTabsPage(this);
         _tabs.BackToGame += () => CloseRequested?.Invoke();
         _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
+        _tabs.BackdropChanged += ShowWindowBackdrop;
         AddPage("All Tabs", "\uE7C4", _tabs);
 
         var steam = new SteamPage(this);
@@ -224,7 +272,6 @@ public partial class OverlayWindow : Window
         page.DockButton = new Button
         {
             Style = (Style)FindResource("DockButton"),
-            ToolTip = name,
             Content = dockContent,
             Background = page.DockFill,
             Foreground = page.DockInk,
@@ -639,7 +686,6 @@ public partial class OverlayWindow : Window
     public void HideAnimated(Action? after)
     {
         int token = ++_visibilityToken;
-        _tabs.HidePreviewsNow(); // Windows draws them on top, so they wouldn't fade with the rest
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
         var fast = new Duration(TimeSpan.FromMilliseconds(180));
         PageScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.97, fast) { EasingFunction = ease });

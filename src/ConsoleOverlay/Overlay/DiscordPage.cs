@@ -496,7 +496,6 @@ internal sealed class DiscordPage : IOverlayPage
             Style = (Style)_resources.FindResource("RoundButton"),
             Content = icon,
             Tag = key,
-            ToolTip = tip,
         };
         // "On" (muted / deafened) draws the button white; kept up to date with the other live values.
         _values.Add((new TextBlock(), () =>
@@ -586,7 +585,6 @@ internal sealed class DiscordPage : IOverlayPage
             Content = layout,
             Tag = member.Id,
             Padding = new Thickness(16, 14, 20, 14),
-            ToolTip = member.Name,
         };
         var row = new MemberRow { Member = member, Ring = ring, Value = value, Status = status, Bar = bar };
         button.Click += (_, _) =>

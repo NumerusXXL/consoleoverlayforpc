@@ -401,7 +401,6 @@ internal sealed class MediaPage : IOverlayPage
             Style = (Style)_resources.FindResource("RoundButton"),
             Width = size,
             Height = size,
-            ToolTip = tip,
             VerticalAlignment = VerticalAlignment.Center,
         };
         if (glyph is not null)

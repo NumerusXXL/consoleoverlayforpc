@@ -16,20 +16,18 @@ namespace ConsoleOverlay.Overlay;
 
 /// <summary>
 /// The All Tabs page, laid out like a console home screen: every open window as a square tile in one row (its icon on
-/// its own color), the focused one bigger and showing the window live, and its name in large type underneath with
-/// what A and X do. A switches to the window (or back to the game you came from), X closes it.
+/// its own color), the focused one bigger, and its name in large type underneath with what A and X do. A switches to
+/// the window (or back to the game you came from), X closes it.
 ///
-/// The live picture is a DWM thumbnail: Windows itself draws it straight from the window's surface onto ours, so it
-/// costs almost nothing. Windows draws it on top of our content at fixed pixel positions, so it is only turned on
-/// once the page has stopped moving and the tile has finished growing.
+/// Like a console showing the focused game's art behind everything, the page background becomes a blurred picture of
+/// the focused window. Pictures are taken once per window each time the overlay opens, off the UI thread.
 /// </summary>
 internal sealed class AllTabsPage : IOverlayPage
 {
     private const double TileWidth = 150, TileHeight = 150;
     private const double FocusedWidth = 212, FocusedHeight = 212;
     private const double TileGap = 18;   // the space between tiles
-    private const double PreviewInset = 8; // the live picture sits inside a thin frame of the tile's color
-    private static readonly TimeSpan ShowPreviewsAfter = TimeSpan.FromMilliseconds(400); // open / slide animations
+    private static readonly TimeSpan BackdropAfter = TimeSpan.FromMilliseconds(220); // focus has settled
     private static readonly TimeSpan GrowTime = TimeSpan.FromMilliseconds(240);
     private static readonly TimeSpan ConfirmWindow = TimeSpan.FromSeconds(3);
 
@@ -37,9 +35,6 @@ internal sealed class AllTabsPage : IOverlayPage
     {
         public required OpenWindow Window { get; init; }
         public required Button Button { get; init; }
-        public required Border Preview { get; init; }
-        public required UIElement Placeholder { get; init; }
-        public IntPtr Thumbnail { get; set; }
     }
 
     private readonly Window _window;
@@ -56,15 +51,12 @@ internal sealed class AllTabsPage : IOverlayPage
     private readonly TextBlock _meta = new();
     private readonly StackPanel _actions = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0) };
     private readonly List<Tile> _tiles = [];
-    private readonly DispatcherTimer _showTimer;
-    private readonly DispatcherTimer _fadeTimer;
-    private readonly DispatcherTimer _followTimer;
-    private DateTime _followUntil;
+    private readonly DispatcherTimer _backdropTimer;
+    private readonly Dictionary<IntPtr, BitmapSource?> _pictures = [];
+    private int _backdropToken;
     private IReadOnlyList<OpenWindow> _windows = [];
     private IntPtr _currentWindow;
     private bool _active;
-    private bool _previewsOn;
-    private byte _previewOpacity;
     private IntPtr _confirmClose;
     private DateTime _confirmUntil;
 
@@ -104,26 +96,16 @@ internal sealed class AllTabsPage : IOverlayPage
         Grid.SetRow(info, 1);
         _root.Children.Add(info);
 
-        _showTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = ShowPreviewsAfter };
-        _showTimer.Tick += (_, _) =>
+        _backdropTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = BackdropAfter };
+        _backdropTimer.Tick += (_, _) =>
         {
-            _showTimer.Stop();
-            ShowPreviews();
-        };
-        _fadeTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
-        _fadeTimer.Tick += (_, _) => FadeStep();
-        // While tiles grow or shrink, keep moving the previews with them, frame by frame.
-        _followTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
-        _followTimer.Tick += (_, _) =>
-        {
-            if (_previewsOn) PlacePreviews();
-            if (DateTime.UtcNow > _followUntil) _followTimer.Stop();
-        };
-        _strip.ScrollChanged += (_, _) =>
-        {
-            if (_previewsOn) PlacePreviews();
+            _backdropTimer.Stop();
+            ShowBackdrop();
         };
     }
+
+    /// <summary>The page background should show this picture (null: the usual one, the game behind the overlay).</summary>
+    public event Action<BitmapSource?>? BackdropChanged;
 
     public Panel Content => _root;
 
@@ -143,24 +125,21 @@ internal sealed class AllTabsPage : IOverlayPage
     public void Activate(IntPtr gameWindow)
     {
         _active = true;
-        _previewsOn = false;
-        ShowPreviewSoon();
+        ScheduleBackdrop();
     }
 
     public void Deactivate()
     {
         _active = false;
-        _showTimer.Stop();
-        HidePreviews();
+        _backdropTimer.Stop();
+        _backdropToken++;
+        BackdropChanged?.Invoke(null);
     }
-
-    /// <summary>Hides the previews right away (they would otherwise stay put while the overlay fades out).</summary>
-    public void HidePreviewsNow() => HidePreviews();
 
     /// <summary>Lets go of the window list and icons while the overlay is hidden.</summary>
     public void Clear()
     {
-        HidePreviews();
+        _pictures.Clear();
         _tiles.Clear();
         _row.Children.Clear();
         _windows = [];
@@ -240,7 +219,6 @@ internal sealed class AllTabsPage : IOverlayPage
 
     private void Reload(int focusIndex)
     {
-        HidePreviews();
         _windows = OpenWindows.List();
         Build();
         HintChanged?.Invoke();
@@ -251,11 +229,6 @@ internal sealed class AllTabsPage : IOverlayPage
             target.Focus();
             Keyboard.Focus(target);
         }
-        // Wait for the new tiles to be laid out before placing previews on them.
-        _window.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
-        {
-            if (_active) ShowPreviews();
-        });
     }
 
     // ---- Building ---------------------------------------------------------------------------
@@ -283,7 +256,7 @@ internal sealed class AllTabsPage : IOverlayPage
 
     private Button BuildTile(OpenWindow window)
     {
-        // The app's icon on its own color, like a console's tiles. The focused one shows the window live on top.
+        // The app's icon on its own color, like a console's tiles.
         var bigIcon = window.Icon is null
             ? (FrameworkElement)Ui.Icon(_window, "", 44) // a generic window
             : new Image { Source = window.Icon, Width = 64, Height = 64 };
@@ -298,21 +271,16 @@ internal sealed class AllTabsPage : IOverlayPage
             Child = bigIcon,
         };
 
-        var preview = new Border { Margin = new Thickness(PreviewInset) };
-        var content = new Grid();
-        content.Children.Add(face);
-        content.Children.Add(preview);
-
         var button = new Button
         {
             Style = (Style)_window.FindResource("WindowTile"),
-            Content = content,
+            Content = face,
             Width = TileWidth,
             Height = TileHeight,
             Margin = new Thickness(0, 0, TileGap, 0),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
-        var tile = new Tile { Window = window, Button = button, Preview = preview, Placeholder = bigIcon };
+        var tile = new Tile { Window = window, Button = button };
 
         button.Click += (_, _) => Primary(tile);
         // With a mouse, pointing at a tile picks it, so the X pill below closes the one you point at.
@@ -328,27 +296,21 @@ internal sealed class AllTabsPage : IOverlayPage
             _strip.ScrollToHorizontalOffset(Math.Max(0, (index - 1) * (TileWidth + TileGap)));
             Grow(button, true);
             ShowInfo(tile);
-            ShowPreviewSoon();
+            ScheduleBackdrop();
         };
-        button.LostKeyboardFocus += (_, _) =>
-        {
-            Grow(button, false);
-            HidePreview(tile);
-        };
+        button.LostKeyboardFocus += (_, _) => Grow(button, false);
 
         _tiles.Add(tile);
         return button;
     }
 
-    /// <summary>The focused tile grows; its preview (and its neighbours', which shift) follows it every frame.</summary>
+    /// <summary>The focused tile grows, the one losing focus shrinks back.</summary>
     private void Grow(Button button, bool focused)
     {
         var duration = new Duration(GrowTime);
         var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
         button.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(focused ? FocusedWidth : TileWidth, duration) { EasingFunction = ease });
         button.BeginAnimation(FrameworkElement.HeightProperty, new DoubleAnimation(focused ? FocusedHeight : TileHeight, duration) { EasingFunction = ease });
-        _followUntil = DateTime.UtcNow + GrowTime + TimeSpan.FromMilliseconds(40);
-        if (_previewsOn && !_followTimer.IsEnabled) _followTimer.Start();
     }
 
     private void ShowInfo(Tile tile)
@@ -379,145 +341,39 @@ internal sealed class AllTabsPage : IOverlayPage
             SwitchTo?.Invoke(tile.Window.Handle);
     }
 
-    // ---- Live preview -----------------------------------------------------------------------
+    // ---- Background ---------------------------------------------------------------------------
 
-    private IntPtr OwnHandle => new WindowInteropHelper(_window).Handle;
-
-    /// <summary>Turns the focused tile's live picture on once it has finished growing.</summary>
-    private void ShowPreviewSoon()
+    private void ScheduleBackdrop()
     {
         if (!_active) return;
-        _showTimer.Stop();
-        _showTimer.Interval = _previewsOn ? GrowTime + TimeSpan.FromMilliseconds(40) : ShowPreviewsAfter;
-        _showTimer.Start();
-    }
-
-    private void ShowPreviews()
-    {
-        if (!_active || !_window.IsVisible) return;
-        var own = OwnHandle;
-        if (own == IntPtr.Zero) return;
-        var tile = Focused(Keyboard.FocusedElement);
-        _previewsOn = true;
-        if (tile is null || tile.Thumbnail != IntPtr.Zero) return;
-
-        // Minimized windows have nothing to show (an exclusive fullscreen game is minimized while we're open).
-        if (!Native.IsWindow(tile.Window.Handle) || Native.IsIconic(tile.Window.Handle)) return;
-        if (Native.DwmRegisterThumbnail(own, tile.Window.Handle, out var thumbnail) != 0) return;
-        tile.Thumbnail = thumbnail;
-        _previewOpacity = 0;
-        PlacePreviews();
-        _fadeTimer.Start();
-    }
-
-    private void FadeStep()
-    {
-        _previewOpacity = (byte)Math.Min(255, _previewOpacity + 40);
-        PlacePreviews();
-        if (_previewOpacity == 255)
-            _fadeTimer.Stop();
+        _backdropTimer.Stop();
+        _backdropTimer.Start();
     }
 
     /// <summary>
-    /// Puts the live picture over its tile, filling it: the middle of the window, cut to the tile's square shape.
-    /// Hidden if the tile isn't fully in view.
+    /// The focused window's picture, blurred, behind the page. The game you came from is already there (the overlay
+    /// opened over it), so it brings that back. Windows that can't be pictured (minimized ones) do the same.
     /// </summary>
-    private void PlacePreviews()
+    private async void ShowBackdrop()
     {
-        var source = PresentationSource.FromVisual(_window);
-        if (source?.CompositionTarget is null) return;
-        var toDevice = source.CompositionTarget.TransformToDevice;
-
-        Rect viewport;
-        try
+        if (!_active || Focused(Keyboard.FocusedElement) is not { } tile) return;
+        var handle = tile.Window.Handle;
+        if (handle == _currentWindow)
         {
-            viewport = _strip.TransformToAncestor(_window).TransformBounds(new Rect(_strip.RenderSize));
-        }
-        catch (InvalidOperationException)
-        {
-            return; // not in the visual tree right now
+            BackdropChanged?.Invoke(null);
+            return;
         }
 
-        foreach (var tile in _tiles)
+        int token = ++_backdropToken;
+        if (!_pictures.TryGetValue(handle, out var picture))
         {
-            if (tile.Thumbnail == IntPtr.Zero) continue;
-
-            Rect area;
-            try
-            {
-                area = tile.Preview.TransformToAncestor(_window).TransformBounds(new Rect(tile.Preview.RenderSize));
-            }
-            catch (InvalidOperationException)
-            {
-                continue;
-            }
-
-            bool inView = area.Width > 0
-                && area.Left >= viewport.Left - 1 && area.Right <= viewport.Right + 1
-                && area.Top >= viewport.Top - 1 && area.Bottom <= viewport.Bottom + 1;
-            var properties = new Native.DWM_THUMBNAIL_PROPERTIES
-            {
-                dwFlags = Native.DWM_TNP_VISIBLE | Native.DWM_TNP_RECTDESTINATION | Native.DWM_TNP_OPACITY | Native.DWM_TNP_SOURCECLIENTAREAONLY,
-                fVisible = inView,
-                fSourceClientAreaOnly = true,
-                opacity = _previewOpacity,
-            };
-
-            if (inView)
-            {
-                var topLeft = toDevice.Transform(area.TopLeft);
-                var bottomRight = toDevice.Transform(area.BottomRight);
-                properties.rcDestination = new Native.RECT
-                {
-                    Left = (int)Math.Round(topLeft.X),
-                    Top = (int)Math.Round(topLeft.Y),
-                    Right = (int)Math.Round(bottomRight.X),
-                    Bottom = (int)Math.Round(bottomRight.Y),
-                };
-                if (Crop(area, tile.Window.Handle) is { } crop)
-                {
-                    properties.dwFlags |= DWM_TNP_RECTSOURCE;
-                    properties.rcSource = crop;
-                }
-            }
-
-            Native.DwmUpdateThumbnailProperties(tile.Thumbnail, ref properties);
-            tile.Placeholder.Visibility = inView && _previewOpacity > 120 ? Visibility.Hidden : Visibility.Visible;
+            var raw = await System.Threading.Tasks.Task.Run(() => WindowPicture.Capture(handle, 960));
+            if (token != _backdropToken || !_active) return;
+            picture = raw is null ? null : ScreenCapture.Blur(raw);
+            _pictures[handle] = picture;
         }
-    }
-
-    private const uint DWM_TNP_RECTSOURCE = 0x02;
-
-    /// <summary>The middle part of the window with the shape of <paramref name="area"/>, in window pixels.</summary>
-    private static Native.RECT? Crop(Rect area, IntPtr window)
-    {
-        if (!Native.GetClientRect(window, out var client) || client.Width <= 0 || client.Height <= 0 || area.Height <= 0)
-            return null;
-        double shape = area.Width / area.Height;
-        double width = client.Width, height = client.Height;
-        if (width / height > shape) width = height * shape;
-        else height = width / shape;
-        int left = (int)((client.Width - width) / 2), top = (int)((client.Height - height) / 2);
-        return new Native.RECT { Left = left, Top = top, Right = left + (int)width, Bottom = top + (int)height };
-    }
-
-    private void HidePreview(Tile tile)
-    {
-        if (tile.Thumbnail != IntPtr.Zero)
-        {
-            Native.DwmUnregisterThumbnail(tile.Thumbnail);
-            tile.Thumbnail = IntPtr.Zero;
-        }
-        tile.Placeholder.Visibility = Visibility.Visible;
-    }
-
-    private void HidePreviews()
-    {
-        _fadeTimer.Stop();
-        _followTimer.Stop();
-        _previewsOn = false;
-        foreach (var tile in _tiles)
-            HidePreview(tile);
+        if (token == _backdropToken && _active)
+            BackdropChanged?.Invoke(picture);
     }
 
     // ---- Helpers ----------------------------------------------------------------------------
