@@ -81,7 +81,7 @@ internal static class Ui
     public static Button ActionPill(FrameworkElement resources, string key, string label, bool primary, Action onClick)
     {
         var ink = primary ? (Brush)resources.FindResource("SelectedTextBrush") : Brushes.White;
-        var glyph = ButtonGlyphs.Create(key, 28);
+        var glyph = ButtonGlyphs.Create(key, 28, dark: primary);
         var content = new StackPanel { Orientation = Orientation.Horizontal };
         content.Children.Add(glyph);
         content.Children.Add(new TextBlock

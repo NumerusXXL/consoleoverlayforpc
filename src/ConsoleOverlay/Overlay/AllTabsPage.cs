@@ -104,6 +104,9 @@ internal sealed class AllTabsPage : IOverlayPage
         };
     }
 
+    /// <summary>The sharp snapshot of the game the overlay opened over (null in exclusive fullscreen).</summary>
+    public Func<BitmapSource?>? GameSnapshot { get; set; }
+
     /// <summary>The page background should show this picture (null: the usual one, the game behind the overlay).</summary>
     public event Action<BitmapSource?>? BackdropChanged;
 
@@ -351,25 +354,22 @@ internal sealed class AllTabsPage : IOverlayPage
     }
 
     /// <summary>
-    /// The focused window's picture, blurred, behind the page. The game you came from is already there (the overlay
-    /// opened over it), so it brings that back. Windows that can't be pictured (minimized ones) do the same.
+    /// The focused window's picture, only slightly blurred, behind the page, so it's easy to recognize. For the game
+    /// you came from it uses the snapshot taken as the overlay opened. Windows that can't be pictured (minimized
+    /// ones) get the usual background.
     /// </summary>
     private async void ShowBackdrop()
     {
         if (!_active || Focused(Keyboard.FocusedElement) is not { } tile) return;
         var handle = tile.Window.Handle;
-        if (handle == _currentWindow)
-        {
-            BackdropChanged?.Invoke(null);
-            return;
-        }
-
         int token = ++_backdropToken;
         if (!_pictures.TryGetValue(handle, out var picture))
         {
-            var raw = await System.Threading.Tasks.Task.Run(() => WindowPicture.Capture(handle, 960));
+            var raw = handle == _currentWindow
+                ? GameSnapshot?.Invoke()
+                : await System.Threading.Tasks.Task.Run(() => WindowPicture.Capture(handle, 1280));
             if (token != _backdropToken || !_active) return;
-            picture = raw is null ? null : ScreenCapture.Blur(raw);
+            picture = raw is null ? null : ScreenCapture.SoftBlur(raw);
             _pictures[handle] = picture;
         }
         if (token == _backdropToken && _active)
