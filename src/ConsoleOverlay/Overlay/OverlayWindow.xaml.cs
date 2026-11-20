@@ -131,6 +131,10 @@ public partial class OverlayWindow : Window
         _shortcuts.KeepOpen += keep => KeepOpen = keep;
         AddPage("Shortcuts", "\uE71D", _shortcuts);
 
+        var media = new MediaPage(this);
+        media.OpenShortcuts += () => SelectPage(_pages.FindIndex(p => p.Logic == _shortcuts), focusFirst: true);
+        AddPage("Media", "\uE8D6", media);
+
         _sound = new SoundPage(this);
         AddPage("Sound", "\uE767", _sound);
 
