@@ -70,6 +70,7 @@ internal sealed class SoundPage : IOverlayPage
         _devices.Margin = new Thickness(10);
         _deviceStrip.Content = _devices;
         _deviceStrip.Margin = new Thickness(-10, -10, -10, 14);
+        _deviceStrip.SizeChanged += (_, _) => FitDeviceCards();
         var page = new StackPanel();
         page.Children.Add(_deviceStrip);
         page.Children.Add(_mixer);
@@ -155,7 +156,7 @@ internal sealed class SoundPage : IOverlayPage
                 ToggleMute(focused);
                 return true;
             case NavCommand.Left or NavCommand.Right when focused is Button { Tag: string key } && _volumeRows.TryGetValue(key, out var row):
-                Change(row, command == NavCommand.Right ? Step : -Step);
+                Change(row, HoldStep(command == NavCommand.Right ? 1 : -1));
                 return true;
             case NavCommand.Up or NavCommand.Down when focused is Button button:
                 return MoveVertically(button, down: command == NavCommand.Down);
@@ -251,6 +252,47 @@ internal sealed class SoundPage : IOverlayPage
             _layoutSignature = "";
             Refresh();
         }
+    }
+
+    /// <summary>
+    /// The device cards share the page's width, so none is cut off at the edge. With many devices they keep a
+    /// readable width and the row scrolls to the focused one.
+    /// </summary>
+    private void FitDeviceCards()
+    {
+        const double Gap = 14, MinWidth = 250, MaxWidth = 420;
+        var cards = _devices.Children.OfType<Button>().ToList();
+        double available = _deviceStrip.ActualWidth - _devices.Margin.Left - _devices.Margin.Right;
+        if (cards.Count == 0 || available <= 0) return;
+        double width = Math.Clamp((available - Gap * (cards.Count - 1)) / cards.Count, MinWidth, MaxWidth);
+        for (int i = 0; i < cards.Count; i++)
+        {
+            cards[i].Width = Math.Floor(width);
+            cards[i].Margin = new Thickness(0, 0, i < cards.Count - 1 ? Gap : 0, 0);
+        }
+    }
+
+    // Holding left / right: the volume moves faster the longer it's held, like a console's sliders.
+    private int _holdDirection;
+    private long _holdStarted, _holdLast;
+
+    private int HoldStep(int direction)
+    {
+        long now = Environment.TickCount64;
+        // While held, repeats arrive every 30-110 ms after a first pause of up to about half a second; a longer gap is a new press.
+        if (direction != _holdDirection || now - _holdLast > 600)
+            _holdStarted = now;
+        _holdDirection = direction;
+        _holdLast = now;
+        long held = now - _holdStarted;
+        int step = held switch
+        {
+            < 400 => Step,
+            < 1000 => 4,
+            < 1800 => 6,
+            _ => 10,
+        };
+        return direction * step;
     }
 
     private void Change(VolumeRow row, int delta)
@@ -356,6 +398,7 @@ internal sealed class SoundPage : IOverlayPage
             _devices.Children.Add(DeviceCard("in:" + device.Id, device, isInput: true));
         if (_devices.Children.Count == 0)
             _devices.Children.Add(Note("No speakers, headphones or microphones found"));
+        FitDeviceCards();
 
         if (!_audio.HasOutput)
         {
@@ -416,7 +459,6 @@ internal sealed class SoundPage : IOverlayPage
             Content = layout,
             Tag = key,
             Uid = device.IsDefault ? "default" : "", // the DeviceCard style draws this one white
-            ToolTip = device.Name,
         };
         _deviceSubtitles[key] = (subtitle, device, isInput);
         SetDeviceSubtitle(subtitle, device, isInput);
@@ -482,7 +524,6 @@ internal sealed class SoundPage : IOverlayPage
             Style = (Style)_resources.FindResource("SliderButton"),
             Content = bar,
             Tag = MasterKey,
-            ToolTip = "Master volume",
         };
         var row = new VolumeRow { Button = button, Value = value, Filled = filled, Empty = empty, Fill = fill, App = null };
         button.Click += (_, _) => ToggleMute(button); // A (or a click) mutes too
@@ -499,23 +540,7 @@ internal sealed class SoundPage : IOverlayPage
     /// <summary>An app: a colored square with its first letter, its name and volume, and a slim bar.</summary>
     private Button AddAppRow(string key, AppAudio app)
     {
-        var badge = new Border
-        {
-            Width = 44,
-            Height = 44,
-            CornerRadius = new CornerRadius(12),
-            Background = AppBrush(app.Name),
-            Margin = new Thickness(0, 0, 16, 0),
-            Child = new TextBlock
-            {
-                Text = app.Name.Length > 0 ? char.ToUpper(app.Name[0], System.Globalization.CultureInfo.CurrentCulture).ToString() : "?",
-                FontSize = 18,
-                FontWeight = FontWeights.Bold,
-                Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
-        };
+        var badge = AppBadge(app);
 
         var name = new TextBlock { Text = app.Name, FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
         var value = new TextBlock { FontSize = 15, Margin = new Thickness(12, 0, 0, 0) };
@@ -549,7 +574,6 @@ internal sealed class SoundPage : IOverlayPage
             Content = layout,
             Tag = key,
             Padding = new Thickness(14, 12, 18, 12),
-            ToolTip = app.Name,
         };
 
         var row = new VolumeRow { Button = button, Value = value, Filled = filled, Empty = empty, Fill = fill, App = app, Name = name };
@@ -563,6 +587,51 @@ internal sealed class SoundPage : IOverlayPage
         _volumeRows[key] = row;
         UpdateRow(row);
         return button;
+    }
+
+    /// <summary>
+    /// The app's own icon (big and sharp, from its program file). System sounds get a speaker; an app whose program
+    /// can't be read (one running as administrator) gets its first letter on a color.
+    /// </summary>
+    private FrameworkElement AppBadge(AppAudio app)
+    {
+        var margin = new Thickness(0, 0, 16, 0);
+        if (app.ProcessId != 0 && Interop.ShellIcons.ExePath(app.ProcessId) is { } path
+            && Interop.ShellIcons.ForFile(path, 64) is { } icon)
+        {
+            var image = new Image { Source = icon, Width = 44, Height = 44, Margin = margin };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            return image;
+        }
+
+        var badge = new Border
+        {
+            Width = 44,
+            Height = 44,
+            CornerRadius = new CornerRadius(12),
+            Background = AppBrush(app.Name),
+            Margin = margin,
+        };
+        if (app.ProcessId == 0)
+        {
+            var speaker = Ui.Icon(_resources, "\uE767", 20);
+            speaker.Foreground = Brushes.White;
+            speaker.HorizontalAlignment = HorizontalAlignment.Center;
+            badge.Child = speaker;
+        }
+        else
+        {
+            badge.Child = new TextBlock
+            {
+                Text = app.Name.Length > 0 ? char.ToUpper(app.Name[0], System.Globalization.CultureInfo.CurrentCulture).ToString() : "?",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+        }
+        return badge;
     }
 
     private static Brush AppBrush(string name)

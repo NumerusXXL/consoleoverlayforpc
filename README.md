@@ -59,7 +59,7 @@ On the **Sound** page:
 
 | | Controller | Keyboard |
 |---|---|---|
-| Change volume | Left / right | Left / right (or mouse wheel) |
+| Change volume (hold to go faster) | Left / right | Left / right (or mouse wheel) |
 | Mute | Y (or A on a volume) | M |
 | Use a device | A on it | Enter |
 | Jump between devices and mixer | LT / RT (or stick clicks) | Tab |
@@ -71,7 +71,7 @@ On the **All Tabs** page (opens first):
 | Switch to a window | A | Enter |
 | Close a window | X (press twice for the game you came from) | X or Delete |
 
-Each window is a square tile with its icon on its own color; the focused one grows and shows the window live. Its name sits big underneath, with how long the game you came from has been running. If an app asks something when it closes (like "save changes?"), the overlay brings it to the front so you can answer.
+Each window is a square tile with its icon on its own color; the focused one grows, and a blurred picture of that window fills the background behind the page. Its name sits big underneath, with how long the game you came from has been running. If an app asks something when it closes (like "save changes?"), the overlay brings it to the front so you can answer.
 
 On the **Media** page, whatever is playing (Spotify, a browser, any app that shows up in Windows' media controls) appears with its cover, a progress bar and previous / play-pause / next. LT / RT jump 10 seconds back or forward. Other apps that are playing sit below; A on one shows it instead.
 

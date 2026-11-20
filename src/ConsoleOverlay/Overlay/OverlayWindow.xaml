@@ -20,6 +20,12 @@
              a full-screen blur re-rendered every frame is what made page changes stutter. -->
         <Image x:Name="Snapshot" Stretch="Fill" RenderOptions.BitmapScalingMode="Linear" />
         <Image x:Name="SnapshotBlurred" Stretch="Fill" Margin="-40" Opacity="0" RenderOptions.BitmapScalingMode="Linear" />
+        <!-- All Tabs: a blurred picture of the focused window, like a console showing the focused game's art.
+             Two layers, so one picture can fade into the next. -->
+        <Grid Margin="-40" IsHitTestVisible="False">
+            <Image x:Name="WindowBackdropA" Stretch="UniformToFill" Opacity="0" RenderOptions.BitmapScalingMode="Linear" />
+            <Image x:Name="WindowBackdropB" Stretch="UniformToFill" Opacity="0" RenderOptions.BitmapScalingMode="Linear" />
+        </Grid>
         <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" Opacity="0" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
         <!-- A fixed gradient (cheap: drawn once) so the title, the buttons and the dock stay readable on bright games. -->
         <Rectangle x:Name="Shade" Fill="{StaticResource ShadeBrush}" IsHitTestVisible="False" />
@@ -89,13 +95,9 @@
                 <TranslateTransform x:Name="DockOffset" />
             </Border.RenderTransform>
             <StackPanel Orientation="Horizontal">
-                <Border Background="#30FFFFFF" CornerRadius="11" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="8,0,6,0">
-                    <TextBlock Text="LB" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
-                </Border>
+                <ContentControl x:Name="DockLeftBumper" Focusable="False" VerticalAlignment="Center" Margin="8,0,6,0" />
                 <StackPanel x:Name="DockItems" Orientation="Horizontal" />
-                <Border Background="#30FFFFFF" CornerRadius="11" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="6,0,8,0">
-                    <TextBlock Text="RB" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
-                </Border>
+                <ContentControl x:Name="DockRightBumper" Focusable="False" VerticalAlignment="Center" Margin="6,0,8,0" />
             </StackPanel>
         </Border>
         </Grid>

@@ -250,7 +250,6 @@ internal sealed class ShortcutsPage : IOverlayPage
             Style = (Style)_resources.FindResource("TileButton"),
             Content = content,
             Tag = tag,
-            ToolTip = name,
         };
         button.Click += (_, _) => onClick();
         return button;
