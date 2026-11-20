@@ -12,8 +12,10 @@ using ConsoleOverlay.Input;
 namespace ConsoleOverlay.Overlay;
 
 /// <summary>
-/// The Sound page: output and input devices on the left, master volume and a mixer for every app on the right.
-/// Up / down picks, left / right changes a volume, A picks a device or mutes, Y mutes, LT / RT jump between columns.
+/// The Sound page: a row of device cards at the top (speakers, headphones, microphones; the one in use is white),
+/// a big master volume slider, and every app's volume below in two columns.
+/// Up / down moves between them, left / right changes a volume (or picks a card), A uses a device or mutes,
+/// Y mutes, LT / RT jump between the devices and the volumes.
 /// While the page is shown it re-reads Windows audio once a second so changes made elsewhere show up.
 /// </summary>
 internal sealed class SoundPage : IOverlayPage
@@ -28,6 +30,7 @@ internal sealed class SoundPage : IOverlayPage
         public required ColumnDefinition Filled { get; init; }
         public required ColumnDefinition Empty { get; init; }
         public required Border Fill { get; init; }
+        public TextBlock? Name { get; init; }
         public AppAudio? App { get; set; } // null for master
         public int ShownVolume { get; set; } = -1; // what is on screen now, so unchanged rows aren't laid out again
         public bool ShownMuted { get; set; }
@@ -36,8 +39,18 @@ internal sealed class SoundPage : IOverlayPage
     private readonly FrameworkElement _resources;
     private readonly AudioService _audio = new();
     private readonly DispatcherTimer _poll;
-    private readonly StackPanel _devices = new();
+    private readonly StackPanel _devices = new() { Orientation = Orientation.Horizontal };
+    private readonly ScrollViewer _deviceStrip = new()
+    {
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Focusable = false,
+        CanContentScroll = false,
+    };
     private readonly StackPanel _mixer = new();
+    private readonly List<Button> _appButtons = [];
+    private readonly StackPanel _appsLeft = new() { Margin = new Thickness(0, 0, 12, 0) };
+    private readonly StackPanel _appsRight = new() { Margin = new Thickness(12, 0, 0, 0) };
     private readonly Dictionary<string, VolumeRow> _volumeRows = [];
     private string _layoutSignature = "";
     private uint _gameProcessId;
@@ -52,21 +65,24 @@ internal sealed class SoundPage : IOverlayPage
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
         _poll.Tick += (_, _) => Refresh();
 
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(_mixer, 2);
-        grid.Children.Add(_devices);
-        grid.Children.Add(_mixer);
-        Content = grid;
+        // Padding inside the strip so the focus ring around a card isn't cut off.
+        _devices.Margin = new Thickness(10);
+        _deviceStrip.Content = _devices;
+        _deviceStrip.Margin = new Thickness(-10, -10, -10, 14);
+        var page = new StackPanel();
+        page.Children.Add(_deviceStrip);
+        page.Children.Add(_mixer);
+        Content = page;
     }
 
     public Panel Content { get; }
 
-    public event Action? HintChanged { add { } remove { } }
+    /// <summary>The hint never changes; raised when the device in use (the subtitle) may have.</summary>
+    public event Action? HintChanged;
 
-    public string Hint => "A select · Y mute · ← → volume · LT / RT switch column · B back to game · LB / RB other pages";
+    public string Hint => "A select · Y mute · ← → volume · LT / RT devices or volume · B back to game · LB / RB other pages";
+
+    public string? Subtitle => _audio.Outputs.FirstOrDefault(d => d.IsDefault)?.Name;
 
     /// <summary>Called when the page comes into view. <paramref name="gameWindow"/> is the window the overlay opened over.</summary>
     public void Activate(IntPtr gameWindow)
@@ -110,6 +126,9 @@ internal sealed class SoundPage : IOverlayPage
         _audio.Release();
         _devices.Children.Clear();
         _mixer.Children.Clear();
+        _appsLeft.Children.Clear();
+        _appsRight.Children.Clear();
+        _appButtons.Clear();
         _volumeRows.Clear();
         _layoutSignature = "";
     }
@@ -137,9 +156,47 @@ internal sealed class SoundPage : IOverlayPage
             case NavCommand.Left or NavCommand.Right when focused is Button { Tag: string key } && _volumeRows.TryGetValue(key, out var row):
                 Change(row, command == NavCommand.Right ? Step : -Step);
                 return true;
+            case NavCommand.Up or NavCommand.Down when focused is Button button:
+                return MoveVertically(button, down: command == NavCommand.Down);
         }
         return false;
     }
+
+    /// <summary>
+    /// Up / down go devices → master → apps. The apps read like a list wrapped into two columns: down the left
+    /// column, then on at the top of the right one, so every app is reachable without left / right (which change
+    /// the volume).
+    /// </summary>
+    private bool MoveVertically(Button focused, bool down)
+    {
+        _volumeRows.TryGetValue(MasterKey, out var master);
+        UIElement? target = null;
+        if (IsInside(focused, _devices))
+        {
+            if (down) target = master?.Button ?? _appButtons.FirstOrDefault();
+            else return true;
+        }
+        else if (master is not null && focused == master.Button)
+        {
+            target = down ? _appButtons.FirstOrDefault() : DefaultDeviceCard();
+        }
+        else
+        {
+            int index = _appButtons.IndexOf(focused);
+            if (index < 0) return false;
+            if (down) target = index + 1 < _appButtons.Count ? _appButtons[index + 1] : null;
+            else target = index > 0 ? _appButtons[index - 1] : master?.Button ?? DefaultDeviceCard();
+        }
+        if (target is null) return true;
+        target.Focus();
+        Keyboard.Focus(target);
+        (target as FrameworkElement)?.BringIntoView();
+        return true;
+    }
+
+    private Button? DefaultDeviceCard() =>
+        _devices.Children.OfType<Button>().FirstOrDefault(b => b.Tag is string k && k.StartsWith("out:", StringComparison.Ordinal) && IsDefaultRow(b))
+        ?? _devices.Children.OfType<Button>().FirstOrDefault();
 
     /// <summary>Keyboard: ← → change a volume, M mutes, Tab jumps between the columns.</summary>
     public bool HandleKey(Key key, IInputElement? focused) => key switch
@@ -153,10 +210,7 @@ internal sealed class SoundPage : IOverlayPage
 
     private void FocusColumn(bool left)
     {
-        UIElement? target = left
-            ? _devices.Children.OfType<Button>().FirstOrDefault(b => b.Tag is string k && k.StartsWith("out:", StringComparison.Ordinal) && IsDefaultRow(b))
-              ?? _devices.Children.OfType<Button>().FirstOrDefault()
-            : FirstFocus();
+        UIElement? target = left ? DefaultDeviceCard() : FirstFocus();
         if (target is null) return;
         target.Focus();
         Keyboard.Focus(target);
@@ -184,6 +238,7 @@ internal sealed class SoundPage : IOverlayPage
             _audio.SetMasterMuted(!_audio.MasterMuted);
             if (_volumeRows.TryGetValue(MasterKey, out var master))
                 UpdateRow(master);
+            UpdateDeviceSubtitles();
         }
         else if (key.StartsWith("in:", StringComparison.Ordinal))
         {
@@ -252,8 +307,10 @@ internal sealed class SoundPage : IOverlayPage
                     row.App = _audio.Apps.FirstOrDefault(a => "app:" + a.Key == key) ?? row.App;
                 UpdateRow(row);
             }
+            UpdateDeviceSubtitles();
             return;
         }
+        HintChanged?.Invoke(); // the subtitle names the device in use
 
         string? focusedKey = (Keyboard.FocusedElement as Button)?.Tag as string;
         bool hadFocus = Keyboard.FocusedElement is DependencyObject d0 && (IsInside(d0, _devices) || IsInside(d0, _mixer));
@@ -271,7 +328,7 @@ internal sealed class SoundPage : IOverlayPage
 
         if (hadFocus && focusedKey is not null)
         {
-            var again = _devices.Children.OfType<Button>().Concat(_mixer.Children.OfType<Button>())
+            var again = _devices.Children.OfType<Button>().Append(_volumeRows.GetValueOrDefault(MasterKey)?.Button).Concat(_appButtons).OfType<Button>()
                 .FirstOrDefault(b => b.Tag as string == focusedKey);
             var target = (UIElement?)again ?? FirstFocus();
             if (target is not null)
@@ -286,74 +343,87 @@ internal sealed class SoundPage : IOverlayPage
     {
         _devices.Children.Clear();
         _mixer.Children.Clear();
+        _appsLeft.Children.Clear();
+        _appsRight.Children.Clear();
+        _appButtons.Clear();
         _volumeRows.Clear();
+        _deviceSubtitles.Clear();
 
-        _devices.Children.Add(Section("Output", first: true));
-        if (_audio.Outputs.Count == 0)
-            _devices.Children.Add(Note("No speakers or headphones found"));
         foreach (var device in _audio.Outputs)
-            _devices.Children.Add(DeviceRow("out:" + device.Id, device, isInput: false));
-
-        _devices.Children.Add(Section("Input", first: false));
-        if (_audio.Inputs.Count == 0)
-            _devices.Children.Add(Note("No microphones found"));
+            _devices.Children.Add(DeviceCard("out:" + device.Id, device, isInput: false));
         foreach (var device in _audio.Inputs)
-            _devices.Children.Add(DeviceRow("in:" + device.Id, device, isInput: true));
+            _devices.Children.Add(DeviceCard("in:" + device.Id, device, isInput: true));
+        if (_devices.Children.Count == 0)
+            _devices.Children.Add(Note("No speakers, headphones or microphones found"));
 
-        _mixer.Children.Add(Section("Volume", first: true));
         if (!_audio.HasOutput)
         {
             _mixer.Children.Add(Note("Plug in speakers or headphones to change the volume"));
             return;
         }
-        AddVolumeRow(MasterKey, "Master", null, large: true);
-        foreach (var app in _audio.Apps)
-            AddVolumeRow("app:" + app.Key, app.Name, app, large: false);
+        AddMaster();
+
+        // Apps: a list wrapped into two columns (left column first), see MoveVertically.
+        var columns = new Grid { Margin = new Thickness(0, 22, 0, 0) };
+        columns.ColumnDefinitions.Add(new ColumnDefinition());
+        columns.ColumnDefinitions.Add(new ColumnDefinition());
+        Grid.SetColumn(_appsRight, 1);
+        columns.Children.Add(_appsLeft);
+        columns.Children.Add(_appsRight);
+        _mixer.Children.Add(columns);
+
+        int leftCount = (_audio.Apps.Count + 1) / 2;
+        for (int i = 0; i < _audio.Apps.Count; i++)
+        {
+            var app = _audio.Apps[i];
+            var button = AddAppRow("app:" + app.Key, app);
+            (i < leftCount ? _appsLeft : _appsRight).Children.Add(button);
+            _appButtons.Add(button);
+        }
         if (_audio.Apps.Count == 0)
-            _mixer.Children.Add(Note("Apps playing sound show up here"));
+            _appsLeft.Children.Add(Note("Apps playing sound show up here"));
     }
 
-    private Button DeviceRow(string key, AudioDevice device, bool isInput)
+    private readonly Dictionary<string, (TextBlock Text, AudioDevice Device, bool IsInput)> _deviceSubtitles = [];
+
+    /// <summary>A device card: icon, name, and "In use" (or the mic's state). The one in use is white.</summary>
+    private Button DeviceCard(string key, AudioDevice device, bool isInput)
     {
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        string glyph = isInput ? "\uE720" // microphone
+            : device.Name.Contains("head", StringComparison.OrdinalIgnoreCase) ? "\uE7F6" // headphones
+            : device.Name.Contains("monitor", StringComparison.OrdinalIgnoreCase) || device.Name.Contains("display", StringComparison.OrdinalIgnoreCase)
+              || device.Name.Contains("hdmi", StringComparison.OrdinalIgnoreCase) || device.Name.Contains("tv", StringComparison.OrdinalIgnoreCase) ? "\uE7F4" // a screen
+            : "\uE7F5"; // speakers
+        var icon = Ui.Icon(_resources, glyph, 20);
+        icon.Margin = new Thickness(0, 0, 14, 0);
 
-        grid.Children.Add(new TextBlock { Text = device.Name, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+        var subtitle = new TextBlock { FontSize = 12, Opacity = 0.75, Margin = new Thickness(0, 2, 0, 0) };
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = device.Name, FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        text.Children.Add(subtitle);
 
-        // A check on the device in use; a crossed mic when that microphone is muted.
-        string? mark = device.IsDefault ? (isInput && device.Muted ? "" : "") : null;
-        if (mark is not null)
-        {
-            var icon = new TextBlock
-            {
-                Text = mark,
-                FontFamily = (FontFamily)_resources.FindResource("IconFont"),
-                FontSize = 14,
-                Margin = new Thickness(10, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = isInput && device.Muted ? "Muted" : "In use",
-            };
-            Grid.SetColumn(icon, 1);
-            grid.Children.Add(icon);
-        }
+        var layout = new DockPanel();
+        DockPanel.SetDock(icon, Dock.Left);
+        layout.Children.Add(icon);
+        layout.Children.Add(text);
 
         var button = new Button
         {
-            Style = (Style)_resources.FindResource("RowButton"),
-            Content = grid,
+            Style = (Style)_resources.FindResource("DeviceCard"),
+            Content = layout,
             Tag = key,
-            Uid = device.IsDefault ? "default" : "",
-            Padding = new Thickness(14, 12, 14, 12),
+            Uid = device.IsDefault ? "default" : "", // the DeviceCard style draws this one white
             ToolTip = device.Name,
         };
+        _deviceSubtitles[key] = (subtitle, device, isInput);
+        SetDeviceSubtitle(subtitle, device, isInput);
 
         string id = device.Id;
         button.Click += (_, _) =>
         {
             if (device.IsDefault)
             {
-                if (isInput) ToggleMute(button);
+                ToggleMute(button);
                 return;
             }
             _audio.SetDefaultDevice(id);
@@ -363,53 +433,123 @@ internal sealed class SoundPage : IOverlayPage
         return button;
     }
 
-    private void AddVolumeRow(string key, string name, AppAudio? app, bool large)
+    private void SetDeviceSubtitle(TextBlock text, AudioDevice device, bool isInput)
     {
-        var text = new Grid();
-        text.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        text.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        text.Children.Add(new TextBlock
-        {
-            Text = name,
-            FontSize = large ? 15 : 14,
-            FontWeight = large ? FontWeights.SemiBold : FontWeights.Normal,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-        var value = new TextBlock { FontSize = large ? 15 : 14, FontWeight = large ? FontWeights.SemiBold : FontWeights.Normal, Margin = new Thickness(12, 0, 0, 0) };
-        Grid.SetColumn(value, 1);
-        text.Children.Add(value);
+        if (isInput)
+            text.Text = !device.IsDefault ? "A to use" : device.Muted ? "Muted · Y to unmute" : "On · Y to mute";
+        else
+            text.Text = !device.IsDefault ? "A to use" : _audio.MasterMuted ? "In use · muted" : "In use";
+    }
 
-        double barHeight = large ? 6 : 4;
+    private void UpdateDeviceSubtitles()
+    {
+        foreach (var (text, device, isInput) in _deviceSubtitles.Values)
+            SetDeviceSubtitle(text, device, isInput);
+    }
+
+    /// <summary>Master volume: a label and value, then a thick white slider with a speaker icon in it.</summary>
+    private void AddMaster()
+    {
+        var name = new TextBlock { Text = "Master", FontSize = 20, FontWeight = FontWeights.Bold };
+        var value = new TextBlock { FontSize = 20, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Right };
+        var label = new Grid { Margin = new Thickness(2, 0, 2, 10) };
+        label.Children.Add(name);
+        label.Children.Add(value);
+        _mixer.Children.Add(label);
+
         var filled = new ColumnDefinition();
         var empty = new ColumnDefinition();
-        var bar = new Grid { Height = barHeight, Margin = new Thickness(0, large ? 10 : 8, 0, 0) };
+        var bar = new Grid { Height = 64 };
         bar.ColumnDefinitions.Add(filled);
         bar.ColumnDefinitions.Add(empty);
-        var track = new Border { Background = (Brush)_resources.FindResource("TrackBrush"), CornerRadius = new CornerRadius(barHeight / 2) };
+        var track = new Border { Background = (Brush)_resources.FindResource("TrackBrush"), CornerRadius = new CornerRadius(32) };
         Grid.SetColumnSpan(track, 2);
-        var fill = new Border
+        var fill = new Border { Background = (Brush)_resources.FindResource("SelectedFillBrush"), CornerRadius = new CornerRadius(32), MinWidth = 64 };
+        var speaker = Ui.Icon(_resources, "\uE767", 20);
+        speaker.Foreground = (Brush)_resources.FindResource("SelectedTextBrush");
+        speaker.Margin = new Thickness(24, 0, 0, 0);
+        speaker.HorizontalAlignment = HorizontalAlignment.Left;
+        Grid.SetColumnSpan(speaker, 2);
+        bar.Children.Add(track);
+        bar.Children.Add(fill);
+        bar.Children.Add(speaker);
+
+        var button = new Button
         {
-            Background = (Brush)_resources.FindResource(large ? "TextBrush" : "SubtleTextBrush"),
-            CornerRadius = new CornerRadius(barHeight / 2),
+            Style = (Style)_resources.FindResource("SliderButton"),
+            Content = bar,
+            Tag = MasterKey,
+            ToolTip = "Master volume",
         };
+        var row = new VolumeRow { Button = button, Value = value, Filled = filled, Empty = empty, Fill = fill, App = null };
+        button.Click += (_, _) => ToggleMute(button); // A (or a click) mutes too
+        button.PreviewMouseWheel += (_, e) =>
+        {
+            Change(row, e.Delta > 0 ? Step : -Step);
+            e.Handled = true;
+        };
+        _volumeRows[MasterKey] = row;
+        _mixer.Children.Add(button);
+        UpdateRow(row);
+    }
+
+    /// <summary>An app: a colored square with its first letter, its name and volume, and a slim bar.</summary>
+    private Button AddAppRow(string key, AppAudio app)
+    {
+        var badge = new Border
+        {
+            Width = 44,
+            Height = 44,
+            CornerRadius = new CornerRadius(12),
+            Background = AppBrush(app.Name),
+            Margin = new Thickness(0, 0, 16, 0),
+            Child = new TextBlock
+            {
+                Text = app.Name.Length > 0 ? char.ToUpper(app.Name[0], System.Globalization.CultureInfo.CurrentCulture).ToString() : "?",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+
+        var name = new TextBlock { Text = app.Name, FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+        var value = new TextBlock { FontSize = 15, Margin = new Thickness(12, 0, 0, 0) };
+        var text = new DockPanel();
+        DockPanel.SetDock(value, Dock.Right);
+        text.Children.Add(value);
+        text.Children.Add(name);
+
+        var filled = new ColumnDefinition();
+        var empty = new ColumnDefinition();
+        var bar = new Grid { Height = 8, Margin = new Thickness(0, 10, 0, 0) };
+        bar.ColumnDefinitions.Add(filled);
+        bar.ColumnDefinitions.Add(empty);
+        var track = new Border { Background = (Brush)_resources.FindResource("TrackBrush"), CornerRadius = new CornerRadius(4) };
+        Grid.SetColumnSpan(track, 2);
+        var fill = new Border { Background = (Brush)_resources.FindResource("TextBrush"), CornerRadius = new CornerRadius(4) };
         bar.Children.Add(track);
         bar.Children.Add(fill);
 
-        var content = new StackPanel();
-        content.Children.Add(text);
-        content.Children.Add(bar);
+        var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        right.Children.Add(text);
+        right.Children.Add(bar);
+        var layout = new DockPanel();
+        DockPanel.SetDock(badge, Dock.Left);
+        layout.Children.Add(badge);
+        layout.Children.Add(right);
 
         var button = new Button
         {
             Style = (Style)_resources.FindResource("RowButton"),
-            Content = content,
+            Content = layout,
             Tag = key,
-            Padding = large ? new Thickness(16, 14, 16, 14) : new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(0, 0, 0, large ? 8 : 2),
-            ToolTip = name,
+            Padding = new Thickness(14, 12, 18, 12),
+            ToolTip = app.Name,
         };
 
-        var row = new VolumeRow { Button = button, Value = value, Filled = filled, Empty = empty, Fill = fill, App = app };
+        var row = new VolumeRow { Button = button, Value = value, Filled = filled, Empty = empty, Fill = fill, App = app, Name = name };
         button.Click += (_, _) => ToggleMute(button); // A (or a click) mutes too
         button.PreviewMouseWheel += (_, e) =>
         {
@@ -418,8 +558,27 @@ internal sealed class SoundPage : IOverlayPage
         };
 
         _volumeRows[key] = row;
-        _mixer.Children.Add(button);
         UpdateRow(row);
+        return button;
+    }
+
+    private static Brush AppBrush(string name)
+    {
+        Color[][] pairs =
+        [
+            [Color.FromRgb(0xFF, 0x9A, 0x5A), Color.FromRgb(0x6B, 0x24, 0x52)],
+            [Color.FromRgb(0x74, 0x80, 0xFF), Color.FromRgb(0x3B, 0x3F, 0xB8)],
+            [Color.FromRgb(0x3E, 0xE0, 0x8F), Color.FromRgb(0x13, 0x7A, 0x4A)],
+            [Color.FromRgb(0x2F, 0x6B, 0xFF), Color.FromRgb(0x1B, 0x2C, 0x6B)],
+            [Color.FromRgb(0xF6, 0xC4, 0x53), Color.FromRgb(0xB9, 0x83, 0x16)],
+            [Color.FromRgb(0xFF, 0x7A, 0xA8), Color.FromRgb(0x7A, 0x18, 0x40)],
+        ];
+        int hash = 0;
+        foreach (char c in name) hash = hash * 31 + char.ToLowerInvariant(c);
+        var pair = pairs[Math.Abs(hash % pairs.Length)];
+        var brush = new LinearGradientBrush(pair[0], pair[1], new Point(0.2, 0), new Point(0.8, 1));
+        brush.Freeze();
+        return brush;
     }
 
     private void UpdateRow(VolumeRow row)
@@ -433,7 +592,8 @@ internal sealed class SoundPage : IOverlayPage
         row.Value.Text = muted ? "Muted" : volume.ToString(System.Globalization.CultureInfo.CurrentCulture);
         row.Filled.Width = new GridLength(Math.Max(volume, 0.0001), GridUnitType.Star);
         row.Empty.Width = new GridLength(Math.Max(100 - volume, 0.0001), GridUnitType.Star);
-        row.Fill.Opacity = muted ? 0.3 : 1;
+        row.Fill.Opacity = muted ? 0.35 : 1;
+        if (row.Name is not null) row.Name.Opacity = muted ? 0.6 : 1;
     }
 
     private TextBlock Section(string text, bool first) => new()

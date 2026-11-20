@@ -131,8 +131,8 @@ internal sealed class DiscordPage : IOverlayPage
             if (_active && _members.TryGetValue(userId, out var row)) ShowSpeaking(row, speaking);
         };
 
-        _controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
-        _controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        _controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
+        _controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
         _controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(_detail, 2);
         _controls.Children.Add(_menu);
@@ -147,6 +147,11 @@ internal sealed class DiscordPage : IOverlayPage
     public string Hint => _client.State == DiscordState.Ready
         ? "A select · X mute your mic · Y mute · ← → volume · B back · LB / RB other pages"
         : "A select · B back to game · LB / RB other pages";
+
+    /// <summary>Where you are: "General · My server".</summary>
+    public string? Subtitle => _client.State != DiscordState.Ready ? null
+        : _client.Channel is { } channel ? (channel.GuildName is null ? channel.Name : $"{channel.Name} · {channel.GuildName}")
+        : "Not in a call";
 
     public void SignOut() => _client.SignOut();
 
@@ -299,6 +304,18 @@ internal sealed class DiscordPage : IOverlayPage
         if (target is not null) Focus(target);
     }
 
+    /// <summary>The menu's buttons, including the round mic / deafen buttons inside your card.</summary>
+    private IEnumerable<Button> MenuButtons()
+    {
+        foreach (var child in _menu.Children)
+        {
+            if (child is Button button) yield return button;
+            else if (child is Border { Child: DockPanel layout })
+                foreach (var round in layout.Children.OfType<StackPanel>().SelectMany(p => p.Children.OfType<Button>()))
+                    yield return round;
+        }
+    }
+
     private static void FocusFirstIn(Panel panel)
     {
         var target = panel.Children.OfType<Button>().FirstOrDefault(b => b.Tag is not "back") ?? panel.Children.OfType<Button>().FirstOrDefault();
@@ -355,7 +372,7 @@ internal sealed class DiscordPage : IOverlayPage
         }
 
         if (!hadFocus) return;
-        var buttons = (ready ? _menu.Children.OfType<Button>().Concat(_detail.Children.OfType<Button>()) : _status.Children.OfType<Button>()).ToList();
+        var buttons = (ready ? MenuButtons().Concat(_detail.Children.OfType<Button>()) : _status.Children.OfType<Button>()).ToList();
         var target = buttons.FirstOrDefault(b => focusedTag is not null && b.Tag as string == focusedTag);
         if (target is not null) Focus(target);
         else if (FirstFocus() is Button first) Focus(first);
@@ -383,13 +400,7 @@ internal sealed class DiscordPage : IOverlayPage
     private void BuildMenu()
     {
         var channel = _client.Channel;
-        _menu.Children.Add(Ui.Section(_resources, "You", first: true));
-        _menu.Children.Add(OptionRow(_menu, "mic", "\uE720", "Microphone", null,
-            () => _client.Muted ? "Muted" : "On", () => _client.SetMuted(!_client.Muted)));
-        _menu.Children.Add(OptionRow(_menu, "deaf", "\uE7F6", "Deafen", null,
-            () => _client.Deafened ? "On" : "Off", () => _client.SetDeafened(!_client.Deafened)));
-
-        _menu.Children.Add(Ui.Section(_resources, "Discord", first: false));
+        _menu.Children.Add(YouCard(channel));
         if (channel is not null)
             _menu.Children.Add(MenuRow("menu:people", "\uE716", "In this call", View.People, () => channel.Members.Count.ToString(CultureInfo.CurrentCulture)));
         _menu.Children.Add(MenuRow("menu:channels", "\uE8F2", channel is null ? "Join a channel" : "Switch channel", View.Channels, null));
@@ -399,7 +410,8 @@ internal sealed class DiscordPage : IOverlayPage
         {
             var leave = OptionRow(_menu, "leave", "\uE778", "Leave call", null, null, () => _client.LeaveChannel());
             leave.Foreground = (Brush)_resources.FindResource("DangerTextBrush");
-            leave.Margin = new Thickness(0, 14, 0, 0);
+            leave.Uid = "plain";
+            leave.Margin = new Thickness(0, 10, 0, 0);
             _menu.Children.Add(leave);
         }
     }
@@ -414,13 +426,103 @@ internal sealed class DiscordPage : IOverlayPage
             if (view == View.Channels) { _browseGuildId = null; _channels = null; }
             SetView(view, focusDetail: true);
         });
-        if (current)
-            row.FontWeight = FontWeights.SemiBold;
+        // The view on the right is a white pill on the left, like a console's settings menu.
+        row.Uid = current ? "selected" : "plain";
         return row;
+    }
+
+    /// <summary>
+    /// You, at the top of the menu: your picture (with the talking ring), name, where you are, and round buttons for
+    /// your microphone and deafen. The round button shows the crossed-out icon and turns white when it is on.
+    /// </summary>
+    private Border YouCard(VoiceChannel? channel)
+    {
+        var self = channel?.Members.FirstOrDefault(m => m.IsSelf);
+        var ring = new Ellipse { Width = 52, Height = 52, Stroke = new SolidColorBrush(SpeakingColor), StrokeThickness = 3, Opacity = 0 };
+        var avatar = self is null
+            ? new Grid { Width = 52, Height = 52, Children = { new Ellipse { Fill = (Brush)_resources.FindResource("TrackBrush") } } }
+            : Avatar(self, 44, ring);
+        avatar.Margin = new Thickness(0, 0, 14, 0);
+        if (self is not null)
+            _members[self.Id] = new MemberRow { Member = self, Ring = ring, Value = new TextBlock(), Status = new TextBlock() };
+
+        var name = new TextBlock { Text = self?.Name ?? "You", FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+        var where = new TextBlock { Style = (Style)_resources.FindResource("RowHint"), TextTrimming = TextTrimming.CharacterEllipsis };
+        _values.Add((where, () => (_client.Muted, _client.Deafened) switch
+        {
+            (_, true) => "Deafened",
+            (true, _) => "Mic muted",
+            _ => channel is null ? "Not in a call" : "In " + channel.Name,
+        }));
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(name);
+        text.Children.Add(where);
+
+        var mic = RoundToggle("mic", "Microphone (X)", () => _client.Muted ? "\uEC54" : "\uE720", () => _client.Muted,
+            () => _client.SetMuted(!_client.Muted));
+        var deaf = RoundToggle("deaf", "Deafen", () => "\uE7F6", () => _client.Deafened,
+            () => _client.SetDeafened(!_client.Deafened));
+        deaf.Margin = new Thickness(10, 0, 0, 0);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        buttons.Children.Add(mic);
+        buttons.Children.Add(deaf);
+
+        var layout = new DockPanel();
+        DockPanel.SetDock(avatar, Dock.Left);
+        DockPanel.SetDock(buttons, Dock.Right);
+        layout.Children.Add(avatar);
+        layout.Children.Add(buttons);
+        layout.Children.Add(text);
+
+        return new Border
+        {
+            Background = (Brush)_resources.FindResource("PaneBrush"),
+            BorderBrush = (Brush)_resources.FindResource("HairlineBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(22),
+            Padding = new Thickness(12, 12, 14, 12),
+            Margin = new Thickness(0, 0, 0, 16),
+            Child = layout,
+        };
+    }
+
+    private Button RoundToggle(string key, string tip, Func<string> glyph, Func<bool> on, Action press)
+    {
+        var icon = Ui.Icon(_resources, glyph(), 17);
+        icon.HorizontalAlignment = HorizontalAlignment.Center;
+        _values.Add((icon, glyph));
+        var button = new Button
+        {
+            Style = (Style)_resources.FindResource("RoundButton"),
+            Content = icon,
+            Tag = key,
+            ToolTip = tip,
+        };
+        // "On" (muted / deafened) draws the button white; kept up to date with the other live values.
+        _values.Add((new TextBlock(), () =>
+        {
+            button.Uid = on() ? "selected" : "";
+            return "";
+        }));
+        button.Click += (_, _) => press();
+        return button;
     }
 
     private void BuildDetail()
     {
+        string? heading = _view switch
+        {
+            View.People => "In this call",
+            View.Channels => _client.Channel is null ? "Join a channel" : "Switch channel",
+            View.Servers => "Other servers",
+            View.Audio => "Voice & audio",
+            View.InputDevices => "Microphone",
+            View.OutputDevices => "Output device",
+            _ => null, // a person has their own header
+        };
+        if (heading is not null)
+            _detail.Children.Add(new TextBlock { Text = heading, Style = (Style)_resources.FindResource("DetailTitle") });
+
         switch (_view)
         {
             case View.People: BuildPeople(); break;
@@ -440,13 +542,10 @@ internal sealed class DiscordPage : IOverlayPage
         var channel = _client.Channel;
         if (channel is null)
         {
-            _detail.Children.Add(Ui.Section(_resources, "Voice", first: true));
             _detail.Children.Add(Ui.Placeholder(_resources, "You're not in a voice channel", "Pick Join a channel to find one."));
             return;
         }
 
-        string where = channel.GuildName is null ? channel.Name : $"{channel.Name}  ·  {channel.GuildName}";
-        _detail.Children.Add(Ui.Section(_resources, where, first: true));
         foreach (var member in channel.Members)
             _detail.Children.Add(BuildMember(member));
         _detail.Children.Add(Ui.Note(_resources, "A on someone for their options. ← → changes how loud you hear them."));
@@ -454,15 +553,15 @@ internal sealed class DiscordPage : IOverlayPage
 
     private Button BuildMember(VoiceMember member)
     {
-        var ring = new Ellipse { Width = 44, Height = 44, Stroke = new SolidColorBrush(SpeakingColor), StrokeThickness = 2.5, Opacity = 0 };
-        var avatar = Avatar(member, 36, ring);
-        avatar.Margin = new Thickness(0, 0, 14, 0);
+        var ring = new Ellipse { Width = 50, Height = 50, Stroke = new SolidColorBrush(SpeakingColor), StrokeThickness = 3, Opacity = 0 };
+        var avatar = Avatar(member, 42, ring);
+        avatar.Margin = new Thickness(0, 0, 16, 0);
 
         var top = new Grid();
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        top.Children.Add(new TextBlock { Text = member.Name, FontSize = 15, TextTrimming = TextTrimming.CharacterEllipsis });
-        var value = new TextBlock { FontSize = 14, Margin = new Thickness(12, 0, 0, 0) };
+        top.Children.Add(new TextBlock { Text = member.Name, FontSize = 17, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        var value = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(12, 0, 0, 0) };
         Grid.SetColumn(value, 1);
         top.Children.Add(value);
 
@@ -472,7 +571,7 @@ internal sealed class DiscordPage : IOverlayPage
         text.Children.Add(status);
         Bar? bar = null;
         if (!member.IsSelf)
-            text.Children.Add(MakeBar(out bar, height: 4));
+            text.Children.Add(MakeBar(out bar, height: 6));
 
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -486,7 +585,7 @@ internal sealed class DiscordPage : IOverlayPage
             Style = (Style)_resources.FindResource("RowButton"),
             Content = layout,
             Tag = member.Id,
-            Padding = new Thickness(12, 10, 16, 10),
+            Padding = new Thickness(16, 14, 20, 14),
             ToolTip = member.Name,
         };
         var row = new MemberRow { Member = member, Ring = ring, Value = value, Status = status, Bar = bar };

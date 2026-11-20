@@ -116,7 +116,7 @@ public partial class OverlayWindow : Window
 
     private void BuildPages()
     {
-        _tabs = new AllTabsPage(this, PageScroller);
+        _tabs = new AllTabsPage(this);
         _tabs.BackToGame += () => CloseRequested?.Invoke();
         _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
         AddPage("All Tabs", "\uE7C4", _tabs);
