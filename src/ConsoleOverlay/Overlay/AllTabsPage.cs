@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using ConsoleOverlay.Input;
 using ConsoleOverlay.Interop;
@@ -14,21 +15,20 @@ using ConsoleOverlay.Interop;
 namespace ConsoleOverlay.Overlay;
 
 /// <summary>
-/// The All Tabs page, laid out like a console home screen: every open window as a tile in one row, the focused one
-/// bigger, and its name in large type underneath with what A and X do. A switches to the window (or back to the game
-/// you came from), X closes it.
+/// The All Tabs page, laid out like a console home screen: every open window as a square tile in one row (its icon on
+/// its own color), the focused one bigger and showing the window live, and its name in large type underneath with
+/// what A and X do. A switches to the window (or back to the game you came from), X closes it.
 ///
-/// The tiles show live previews. These are DWM thumbnails: Windows itself draws them straight from each window's
-/// surface onto ours, so they cost almost nothing and stay live. Windows draws them on top of our content at fixed
-/// pixel positions, so they are only turned on once the page has stopped moving, re-placed while a tile grows, and
-/// hidden for tiles scrolled partly out of view.
+/// The live picture is a DWM thumbnail: Windows itself draws it straight from the window's surface onto ours, so it
+/// costs almost nothing. Windows draws it on top of our content at fixed pixel positions, so it is only turned on
+/// once the page has stopped moving and the tile has finished growing.
 /// </summary>
 internal sealed class AllTabsPage : IOverlayPage
 {
-    private const double TileWidth = 224, TileHeight = 140;
-    private const double FocusedWidth = 320, FocusedHeight = 200;
+    private const double TileWidth = 150, TileHeight = 150;
+    private const double FocusedWidth = 212, FocusedHeight = 212;
     private const double TileGap = 18;   // the space between tiles
-    private const double PreviewInset = 10; // the preview sits inside the tile's frosted frame
+    private const double PreviewInset = 8; // the live picture sits inside a thin frame of the tile's color
     private static readonly TimeSpan ShowPreviewsAfter = TimeSpan.FromMilliseconds(400); // open / slide animations
     private static readonly TimeSpan GrowTime = TimeSpan.FromMilliseconds(240);
     private static readonly TimeSpan ConfirmWindow = TimeSpan.FromSeconds(3);
@@ -52,8 +52,7 @@ internal sealed class AllTabsPage : IOverlayPage
         CanContentScroll = false,
     };
     private readonly StackPanel _row = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom };
-    private readonly Image _heroIcon = new() { Width = 46, Height = 46, Margin = new Thickness(0, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _title = new() { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _title = new() { TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 48, FontWeight = FontWeights.ExtraBold };
     private readonly TextBlock _meta = new();
     private readonly StackPanel _actions = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0) };
     private readonly List<Tile> _tiles = [];
@@ -82,27 +81,24 @@ internal sealed class AllTabsPage : IOverlayPage
     {
         _window = window;
 
-        _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(FocusedHeight + 30) });
+        _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(FocusedHeight + 52) });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         // Padding so the focus ring and halo (drawn just outside a tile) aren't cut off by the scrolling strip.
-        _row.Margin = new Thickness(10, 10, 10, 12);
+        _row.Margin = new Thickness(12, 30, 12, 12);
         _strip.Content = _row;
-        _strip.Margin = new Thickness(-10, 0, -10, 0);
+        _strip.Margin = new Thickness(-12, 0, -12, 0);
         KeyboardNavigation.SetDirectionalNavigation(_row, KeyboardNavigationMode.Contained);
         _root.Children.Add(_strip);
 
-        _title.Style = (Style)window.FindResource("HeroTitle");
-        RenderOptions.SetBitmapScalingMode(_heroIcon, BitmapScalingMode.HighQuality);
-        var titleLine = new DockPanel();
-        DockPanel.SetDock(_heroIcon, Dock.Left);
-        titleLine.Children.Add(_heroIcon);
-        titleLine.Children.Add(_title);
+        _title.FontFamily = (FontFamily)window.FindResource("DisplayFont");
+        _title.Foreground = (Brush)window.FindResource("TextBrush");
         _meta.FontSize = 16;
-        _meta.Margin = new Thickness(0, 8, 0, 0);
+        _meta.Margin = new Thickness(0, 10, 0, 0);
+        _meta.TextTrimming = TextTrimming.CharacterEllipsis;
         _meta.Foreground = (Brush)window.FindResource("SoftTextBrush");
-        var info = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
-        info.Children.Add(titleLine);
+        var info = new StackPanel { Margin = new Thickness(0, 16, 0, 0), MaxWidth = 900, HorizontalAlignment = HorizontalAlignment.Left };
+        info.Children.Add(_title);
         info.Children.Add(_meta);
         info.Children.Add(_actions);
         Grid.SetRow(info, 1);
@@ -112,10 +108,7 @@ internal sealed class AllTabsPage : IOverlayPage
         _showTimer.Tick += (_, _) =>
         {
             _showTimer.Stop();
-            var timer = System.Diagnostics.Stopwatch.StartNew();
             ShowPreviews();
-            if (timer.ElapsedMilliseconds > 20)
-                Log.Write($"All Tabs: turning on {_tiles.Count} previews took {timer.ElapsedMilliseconds} ms.");
         };
         _fadeTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
         _fadeTimer.Tick += (_, _) => FadeStep();
@@ -150,8 +143,8 @@ internal sealed class AllTabsPage : IOverlayPage
     public void Activate(IntPtr gameWindow)
     {
         _active = true;
-        _showTimer.Stop();
-        _showTimer.Start();
+        _previewsOn = false;
+        ShowPreviewSoon();
     }
 
     public void Deactivate()
@@ -171,7 +164,6 @@ internal sealed class AllTabsPage : IOverlayPage
         _tiles.Clear();
         _row.Children.Clear();
         _windows = [];
-        _heroIcon.Source = null;
     }
 
     /// <summary>Start on the first window that isn't the one you came from, like Alt+Tab.</summary>
@@ -277,7 +269,6 @@ internal sealed class AllTabsPage : IOverlayPage
         if (_windows.Count == 0)
         {
             _strip.Visibility = Visibility.Hidden;
-            _heroIcon.Visibility = Visibility.Collapsed;
             _title.Text = "No other windows open";
             _meta.Text = "Apps and games you open show up here.";
             _actions.Children.Clear();
@@ -292,29 +283,34 @@ internal sealed class AllTabsPage : IOverlayPage
 
     private Button BuildTile(OpenWindow window)
     {
-        // The app's icon, until the live preview is drawn over it (and for minimized windows, which have none).
+        // The app's icon on its own color, like a console's tiles. The focused one shows the window live on top.
         var bigIcon = window.Icon is null
-            ? (FrameworkElement)Ui.Icon(_window, "", 40) // a generic window
-            : new Image { Source = window.Icon, Width = 56, Height = 56 };
+            ? (FrameworkElement)Ui.Icon(_window, "", 44) // a generic window
+            : new Image { Source = window.Icon, Width = 64, Height = 64 };
         bigIcon.HorizontalAlignment = HorizontalAlignment.Center;
         bigIcon.VerticalAlignment = VerticalAlignment.Center;
         RenderOptions.SetBitmapScalingMode(bigIcon, BitmapScalingMode.HighQuality);
-
-        var preview = new Border
+        var (light, dark) = TileColors(window.Icon);
+        var face = new Border
         {
-            Margin = new Thickness(PreviewInset),
+            CornerRadius = new CornerRadius(24),
+            Background = new LinearGradientBrush(light, dark, new Point(0.2, 0), new Point(0.8, 1)),
             Child = bigIcon,
         };
+
+        var preview = new Border { Margin = new Thickness(PreviewInset) };
+        var content = new Grid();
+        content.Children.Add(face);
+        content.Children.Add(preview);
 
         var button = new Button
         {
             Style = (Style)_window.FindResource("WindowTile"),
-            Content = preview,
+            Content = content,
             Width = TileWidth,
             Height = TileHeight,
             Margin = new Thickness(0, 0, TileGap, 0),
             VerticalAlignment = VerticalAlignment.Bottom,
-            ToolTip = window.AppName is null ? window.Title : $"{window.Title}\n{window.AppName}",
         };
         var tile = new Tile { Window = window, Button = button, Preview = preview, Placeholder = bigIcon };
 
@@ -332,8 +328,13 @@ internal sealed class AllTabsPage : IOverlayPage
             _strip.ScrollToHorizontalOffset(Math.Max(0, (index - 1) * (TileWidth + TileGap)));
             Grow(button, true);
             ShowInfo(tile);
+            ShowPreviewSoon();
         };
-        button.LostKeyboardFocus += (_, _) => Grow(button, false);
+        button.LostKeyboardFocus += (_, _) =>
+        {
+            Grow(button, false);
+            HidePreview(tile);
+        };
 
         _tiles.Add(tile);
         return button;
@@ -356,12 +357,13 @@ internal sealed class AllTabsPage : IOverlayPage
         bool current = window.Handle == _currentWindow;
         bool confirming = current && _confirmClose == window.Handle && DateTime.UtcNow <= _confirmUntil;
 
-        _heroIcon.Source = window.Icon;
-        _heroIcon.Visibility = window.Icon is null ? Visibility.Collapsed : Visibility.Visible;
-        _title.Text = window.Title;
+        // The app's name big (a game's name, "Google Chrome"), what's in the window underneath.
+        string name = window.AppName is { Length: > 0 } app ? app : window.Title;
+        string detail = window.AppName is { Length: > 0 } && window.Title != name ? window.Title : "";
+        _title.Text = name;
         _meta.Text = confirming ? "Press X again to close this game"
-            : current ? (window.AppName is null ? "Current" : $"Current · {window.AppName}")
-            : window.AppName ?? "";
+            : current ? string.Join(" · ", new[] { "Current", RunningFor(window.Handle), detail }.Where(t => t.Length > 0))
+            : detail;
 
         _actions.Children.Clear();
         _actions.Children.Add(Ui.ActionPill(_window, "A", current ? "Back to game" : "Switch to", primary: true, () => Primary(tile)));
@@ -377,26 +379,32 @@ internal sealed class AllTabsPage : IOverlayPage
             SwitchTo?.Invoke(tile.Window.Handle);
     }
 
-    // ---- Live previews ----------------------------------------------------------------------
+    // ---- Live preview -----------------------------------------------------------------------
 
     private IntPtr OwnHandle => new WindowInteropHelper(_window).Handle;
+
+    /// <summary>Turns the focused tile's live picture on once it has finished growing.</summary>
+    private void ShowPreviewSoon()
+    {
+        if (!_active) return;
+        _showTimer.Stop();
+        _showTimer.Interval = _previewsOn ? GrowTime + TimeSpan.FromMilliseconds(40) : ShowPreviewsAfter;
+        _showTimer.Start();
+    }
 
     private void ShowPreviews()
     {
         if (!_active || !_window.IsVisible) return;
         var own = OwnHandle;
         if (own == IntPtr.Zero) return;
-
-        foreach (var tile in _tiles)
-        {
-            if (tile.Thumbnail != IntPtr.Zero) continue;
-            // Minimized windows have nothing to show (an exclusive fullscreen game is minimized while we're open).
-            if (!Native.IsWindow(tile.Window.Handle) || Native.IsIconic(tile.Window.Handle)) continue;
-            if (Native.DwmRegisterThumbnail(own, tile.Window.Handle, out var thumbnail) == 0)
-                tile.Thumbnail = thumbnail;
-        }
-
+        var tile = Focused(Keyboard.FocusedElement);
         _previewsOn = true;
+        if (tile is null || tile.Thumbnail != IntPtr.Zero) return;
+
+        // Minimized windows have nothing to show (an exclusive fullscreen game is minimized while we're open).
+        if (!Native.IsWindow(tile.Window.Handle) || Native.IsIconic(tile.Window.Handle)) return;
+        if (Native.DwmRegisterThumbnail(own, tile.Window.Handle, out var thumbnail) != 0) return;
+        tile.Thumbnail = thumbnail;
         _previewOpacity = 0;
         PlacePreviews();
         _fadeTimer.Start();
@@ -410,7 +418,10 @@ internal sealed class AllTabsPage : IOverlayPage
             _fadeTimer.Stop();
     }
 
-    /// <summary>Puts each preview over its tile, keeping the window's shape, or hides it if the tile isn't fully in view.</summary>
+    /// <summary>
+    /// Puts the live picture over its tile, filling it: the middle of the window, cut to the tile's square shape.
+    /// Hidden if the tile isn't fully in view.
+    /// </summary>
     private void PlacePreviews()
     {
         var source = PresentationSource.FromVisual(_window);
@@ -454,7 +465,6 @@ internal sealed class AllTabsPage : IOverlayPage
 
             if (inView)
             {
-                area = Fit(area, tile.Window.Handle);
                 var topLeft = toDevice.Transform(area.TopLeft);
                 var bottomRight = toDevice.Transform(area.BottomRight);
                 properties.rcDestination = new Native.RECT
@@ -464,6 +474,11 @@ internal sealed class AllTabsPage : IOverlayPage
                     Right = (int)Math.Round(bottomRight.X),
                     Bottom = (int)Math.Round(bottomRight.Y),
                 };
+                if (Crop(area, tile.Window.Handle) is { } crop)
+                {
+                    properties.dwFlags |= DWM_TNP_RECTSOURCE;
+                    properties.rcSource = crop;
+                }
             }
 
             Native.DwmUpdateThumbnailProperties(tile.Thumbnail, ref properties);
@@ -471,15 +486,29 @@ internal sealed class AllTabsPage : IOverlayPage
         }
     }
 
-    /// <summary>The largest rectangle with the window's shape that fits in <paramref name="area"/>, centered.</summary>
-    private static Rect Fit(Rect area, IntPtr window)
-    {
-        if (!Native.GetClientRect(window, out var client) || client.Width <= 0 || client.Height <= 0)
-            return area;
+    private const uint DWM_TNP_RECTSOURCE = 0x02;
 
-        double scale = Math.Min(area.Width / client.Width, area.Height / client.Height);
-        double width = client.Width * scale, height = client.Height * scale;
-        return new Rect(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
+    /// <summary>The middle part of the window with the shape of <paramref name="area"/>, in window pixels.</summary>
+    private static Native.RECT? Crop(Rect area, IntPtr window)
+    {
+        if (!Native.GetClientRect(window, out var client) || client.Width <= 0 || client.Height <= 0 || area.Height <= 0)
+            return null;
+        double shape = area.Width / area.Height;
+        double width = client.Width, height = client.Height;
+        if (width / height > shape) width = height * shape;
+        else height = width / shape;
+        int left = (int)((client.Width - width) / 2), top = (int)((client.Height - height) / 2);
+        return new Native.RECT { Left = left, Top = top, Right = left + (int)width, Bottom = top + (int)height };
+    }
+
+    private void HidePreview(Tile tile)
+    {
+        if (tile.Thumbnail != IntPtr.Zero)
+        {
+            Native.DwmUnregisterThumbnail(tile.Thumbnail);
+            tile.Thumbnail = IntPtr.Zero;
+        }
+        tile.Placeholder.Visibility = Visibility.Visible;
     }
 
     private void HidePreviews()
@@ -488,13 +517,68 @@ internal sealed class AllTabsPage : IOverlayPage
         _followTimer.Stop();
         _previewsOn = false;
         foreach (var tile in _tiles)
+            HidePreview(tile);
+    }
+
+    // ---- Helpers ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// A tile's two colors: the icon's strongest color, and a darker shade of it, for the gradient behind the icon.
+    /// Slate grey when the icon has none (or there is no icon).
+    /// </summary>
+    private static (Color Light, Color Dark) TileColors(ImageSource? icon)
+    {
+        var fallback = (Color.FromRgb(0x4A, 0x54, 0x68), Color.FromRgb(0x23, 0x29, 0x3A));
+        if (icon is not BitmapSource bitmap) return fallback;
+        try
         {
-            if (tile.Thumbnail != IntPtr.Zero)
+            var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+            int width = converted.PixelWidth, height = converted.PixelHeight;
+            var pixels = new byte[width * height * 4];
+            converted.CopyPixels(pixels, width * 4, 0);
+
+            // Average the colorful, mostly opaque pixels, weighting each by how colorful it is.
+            double r = 0, g = 0, b = 0, weight = 0;
+            for (int i = 0; i < pixels.Length; i += 4)
             {
-                Native.DwmUnregisterThumbnail(tile.Thumbnail);
-                tile.Thumbnail = IntPtr.Zero;
+                if (pixels[i + 3] < 160) continue;
+                double pb = pixels[i], pg = pixels[i + 1], pr = pixels[i + 2];
+                double max = Math.Max(pr, Math.Max(pg, pb)), min = Math.Min(pr, Math.Min(pg, pb));
+                double saturation = max <= 0 ? 0 : (max - min) / max;
+                if (saturation < 0.25 || max < 40) continue;
+                double w = saturation * saturation;
+                r += pr * w; g += pg * w; b += pb * w; weight += w;
             }
-            tile.Placeholder.Visibility = Visibility.Visible;
+            if (weight <= 0) return fallback;
+            var light = Color.FromRgb((byte)(r / weight), (byte)(g / weight), (byte)(b / weight));
+            light = Scale(light, 230.0 / Math.Max(1.0, Math.Max(light.R, Math.Max(light.G, (double)light.B)))); // bright, not neon
+            return (light, Scale(light, 0.38));
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private static Color Scale(Color color, double factor) => Color.FromRgb(
+        (byte)Math.Clamp(color.R * factor, 0, 255), (byte)Math.Clamp(color.G * factor, 0, 255), (byte)Math.Clamp(color.B * factor, 0, 255));
+
+    /// <summary>"playing for 1 h 24 min": how long the window's program has been running.</summary>
+    private static string RunningFor(IntPtr window)
+    {
+        try
+        {
+            Native.GetWindowThreadProcessId(window, out uint pid);
+            using var process = System.Diagnostics.Process.GetProcessById((int)pid);
+            var time = DateTime.Now - process.StartTime;
+            if (time.TotalMinutes < 1) return "just started";
+            return time.TotalHours >= 1
+                ? $"playing for {(int)time.TotalHours} h {time.Minutes} min"
+                : $"playing for {(int)time.TotalMinutes} min";
+        }
+        catch
+        {
+            return ""; // a program running as administrator won't tell
         }
     }
 }

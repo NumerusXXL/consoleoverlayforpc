@@ -2,7 +2,7 @@
 
 A lightweight, controller-friendly overlay for Windows, in the spirit of the Xbox Game Bar but built around a gamepad first.
 
-Status: v1. Sound, Discord voice controls, a window switcher and the time, all reachable from a controller.
+Status: v1.1 in progress. Window switcher, Steam library, shortcuts, media, sound, Discord voice controls, capture and performance stats, all reachable from a controller.
 
 ## Roadmap
 
@@ -71,7 +71,19 @@ On the **All Tabs** page (opens first):
 | Switch to a window | A | Enter |
 | Close a window | X (press twice for the game you came from) | X or Delete |
 
-Each tile shows a live preview of the window. If an app asks something when it closes (like "save changes?"), the overlay brings it to the front so you can answer.
+Each window is a square tile with its icon on its own color; the focused one grows and shows the window live. Its name sits big underneath, with how long the game you came from has been running. If an app asks something when it closes (like "save changes?"), the overlay brings it to the front so you can answer.
+
+On the **Media** page, whatever is playing (Spotify, a browser, any app that shows up in Windows' media controls) appears with its cover, a progress bar and previous / play-pause / next. LT / RT jump 10 seconds back or forward. Other apps that are playing sit below; A on one shows it instead.
+
+On the **Capture** page:
+
+- **Screenshot**: the overlay closes and Console Overlay saves a PNG of the game to `Videos\Captures`. A note in the corner confirms it.
+- **Save last clip** and **Record**: these ask the recorder that's already on your PC, which keeps recent gameplay far more cheaply than this app could. With an NVIDIA GPU that's the **NVIDIA app** (turn on its in-game overlay, and Instant Replay for clips). On other GPUs it's **Xbox Game Bar** (turn on "Record what happened" in Windows Settings › Gaming › Captures). Pick one in Settings › Capture.
+- **Recent**: your newest screenshots and clips (from `Videos\Captures`, the NVIDIA app's folders in Videos, and `Pictures\Screenshots`). A opens one.
+
+On the **Performance** page: the game's frame rate, 1% low and frame time with a graph of the last minute, and CPU, GPU, memory and video memory. GPU temperature, clock and video memory come from the NVIDIA driver; on other GPUs they say "Not supported". Y turns on **stats in the corner**, a small box with the frame rate, CPU and GPU that stays on screen while you play (pick the corner in Settings › Performance; exclusive fullscreen games draw over it).
+
+Counting frames needs permission from Windows: either run Console Overlay as administrator (X on the Performance page restarts it that way), or use **Allow counting frames for good** in Settings › Performance, which adds your account to Windows' Performance Log Users group once (then sign out and back in).
 
 On the **Discord** page (laid out like Discord on Xbox: you and a menu on the left, the picked view on the right):
 
@@ -96,6 +108,8 @@ The **Settings** page in the overlay has a list of sections on the left. Moving 
 - **Appearance**: size (Big, the default, fits the overlay to the screen like a console on a TV; Standard is for a desk; Huge is bigger still), accent color, the background behind the overlay (blurred game, sharp game, or dark), 12 or 24-hour clock.
 - **Startup**: start with Windows, and whether to show a notification when it starts.
 - **Games**: what to do with exclusive fullscreen games, and which games to skip. Open the overlay over a game and it offers to skip that one.
+- **Capture**: who makes clips and recordings (NVIDIA app or Xbox Game Bar), and where screenshots go.
+- **Performance**: stats in the corner on or off and which corner, and permission to count frames.
 - **Discord**: enter your Discord app's Client ID and Client Secret (type them, or X to paste from the clipboard), open the setup guide, sign out.
 - **About**: version, check for updates, open the log, quit.
 
@@ -112,7 +126,10 @@ Everything is stored in `%APPDATA%\ConsoleOverlay\settings.json`. You can still 
   "AccentColor": "White",
   "Background": "Blur",
   "ClockFormat": "System",
-  "StartupNotification": true
+  "StartupNotification": true,
+  "CornerStats": false,
+  "CornerStatsPosition": "TopLeft",
+  "Recorder": "NVIDIA"
 }
 ```
 

@@ -20,6 +20,7 @@ public sealed class OverlayController
     private AppSettings _settings;
     private IntPtr _previousForeground;
     private readonly Stopwatch _openedAt = new();
+    private CornerStatsWindow? _cornerStats;
 
     public OverlayController(OverlayWindow window, ControllerService controller, AppSettings settings)
     {
@@ -30,6 +31,7 @@ public sealed class OverlayController
         _window.CloseRequested += () => Close(restorePrevious: true);
         _window.SwitchToWindowRequested += hwnd => Close(restorePrevious: false, then: () => OpenWindows.SwitchTo(hwnd));
         _window.CloseThenRequested += action => Close(restorePrevious: false, then: action);
+        _window.BackToGameThenRequested += action => Close(restorePrevious: true, then: action);
         _window.Deactivated += (_, _) =>
         {
             // Clicking or Alt+Tabbing elsewhere closes the overlay without stealing focus back.
@@ -59,6 +61,23 @@ public sealed class OverlayController
     {
         _settings = settings;
         _window.UpdateSettings(settings);
+        UpdateCornerStats();
+    }
+
+    /// <summary>The stats in the corner show while playing (overlay closed) if they're turned on.</summary>
+    private void UpdateCornerStats()
+    {
+        bool shown = _settings.CornerStats && !IsOpen;
+        if (!shown && _cornerStats is null) return;
+        try
+        {
+            _cornerStats ??= new CornerStatsWindow();
+            _cornerStats.SetShown(shown, _settings.CornerStatsPosition);
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Stats in the corner failed: {ex.Message}");
+        }
     }
 
     public void Toggle()
@@ -91,6 +110,7 @@ public sealed class OverlayController
 
         _previousForeground = foreground;
         IsOpen = true;
+        UpdateCornerStats();
         _openedAt.Restart();
         OverlayPriority.Boost(true);
 
@@ -130,6 +150,8 @@ public sealed class OverlayController
                 Native.SetForegroundWindow(previous);
             }
             then?.Invoke();
+            Perf.PerfMonitor.Instance.SetGameWindow(IntPtr.Zero);
+            if (!IsOpen) UpdateCornerStats();
         });
     }
 

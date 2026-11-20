@@ -26,6 +26,12 @@ public partial class App : Application, ISettingsHost
         HookCrashHandlers();
 
         _singleInstance = new Mutex(initiallyOwned: true, "ConsoleOverlay.SingleInstance", out bool isFirst);
+        // Restarted as administrator: the old copy is quitting; wait for it instead of complaining.
+        if (!isFirst && Array.IndexOf(e.Args, RestartedArgument) >= 0)
+        {
+            try { isFirst = _singleInstance.WaitOne(TimeSpan.FromSeconds(10)); }
+            catch (AbandonedMutexException) { isFirst = true; }
+        }
         if (!isFirst)
         {
             MessageBox.Show("Console Overlay is already running. Look for it in the system tray.", "Console Overlay");
@@ -195,6 +201,28 @@ public partial class App : Application, ISettingsHost
 
     private void ShowBalloon(string message) =>
         _tray?.ShowBalloonTip(4000, "Console Overlay", message, Forms.ToolTipIcon.None);
+
+    private const string RestartedArgument = "--restarted";
+
+    public bool RestartAsAdmin()
+    {
+        try
+        {
+            var exe = Environment.ProcessPath ?? System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName;
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, RestartedArgument)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+            });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false; // "No" in the Windows prompt
+        }
+        Log.Write("Restarting as administrator.");
+        ExitApp();
+        return true;
+    }
 
     private void ExitApp()
     {

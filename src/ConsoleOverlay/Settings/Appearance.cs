@@ -102,6 +102,12 @@ public interface ISettingsHost
 
     void ResumeHotkey();
 
+    /// <summary>
+    /// Starts Console Overlay again as administrator (Windows asks first) and quits this one. Returns false if the
+    /// person said no.
+    /// </summary>
+    bool RestartAsAdmin();
+
     /// <summary>Waits for a held button combo. <paramref name="done"/> gets null when cancelled or timed out.</summary>
     void CaptureCombo(Action<ControllerButtons> progress, Action<ControllerButtons?> done);
 
