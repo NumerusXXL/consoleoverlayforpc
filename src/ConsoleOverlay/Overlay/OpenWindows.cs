@@ -140,7 +140,7 @@ internal static class OpenWindows
         // The program's big icon from Explorer is much sharper than the 32 px one the window hands out. Store apps all
         // run inside ApplicationFrameHost, so for them the window's own icon is the right one.
         if (path is not null && !path.EndsWith("ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase)
-            && ShellIcons.ForFile(path, 128) is { } big)
+            && ShellIcons.ForFile(path, 256) is { } big)
             return big;
 
         try

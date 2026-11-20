@@ -22,30 +22,38 @@ internal static class ScreenCapture
     /// A blurred copy, made once: the snapshot shrunk to a fifth, softened, and later stretched back up with
     /// smooth scaling. That looks like a strong blur but costs nothing per frame, unlike a live blur effect.
     /// </summary>
-    public static BitmapSource? Blur(BitmapSource source)
+    public static BitmapSource? Blur(BitmapSource source) => Blur(source, shrink: 5, radius: 3, dim: 0x80);
+
+    /// <summary>
+    /// A lightly blurred copy, for the All Tabs background: the window stays recognizable, just soft enough that the
+    /// page reads on top of it.
+    /// </summary>
+    public static BitmapSource? SoftBlur(BitmapSource source) => Blur(source, shrink: 1, radius: 2.5, dim: 0x50);
+
+    private static BitmapSource? Blur(BitmapSource source, int shrink, double radius, byte dim)
     {
         try
         {
-            int width = Math.Max(1, source.PixelWidth / 5);
-            int height = Math.Max(1, source.PixelHeight / 5);
+            int width = Math.Max(1, source.PixelWidth / shrink);
+            int height = Math.Max(1, source.PixelHeight / shrink);
             var image = new System.Windows.Controls.Image
             {
                 Source = source,
                 Stretch = Stretch.Fill,
-                Effect = new BlurEffect { Radius = 3, KernelType = KernelType.Gaussian },
+                Effect = new BlurEffect { Radius = radius, KernelType = KernelType.Gaussian },
             };
             RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
             image.Measure(new System.Windows.Size(width, height));
             image.Arrange(new Rect(0, 0, width, height));
 
             // Dim it here too, so the overlay doesn't need a separate full-screen dim layer on top.
-            var dim = new DrawingVisual();
-            using (var dc = dim.RenderOpen())
-                dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromArgb(0x80, 0x08, 0x0A, 0x10)), null, new Rect(0, 0, width, height));
+            var shade = new DrawingVisual();
+            using (var dc = shade.RenderOpen())
+                dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromArgb(dim, 0x08, 0x0A, 0x10)), null, new Rect(0, 0, width, height));
 
             var target = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             target.Render(image);
-            target.Render(dim);
+            target.Render(shade);
             target.Freeze();
             return target;
         }

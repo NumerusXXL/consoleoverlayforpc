@@ -172,6 +172,7 @@ public partial class OverlayWindow : Window
         _tabs.BackToGame += () => CloseRequested?.Invoke();
         _tabs.SwitchTo += hwnd => SwitchToWindowRequested?.Invoke(hwnd);
         _tabs.BackdropChanged += ShowWindowBackdrop;
+        _tabs.GameSnapshot = () => Snapshot.Visibility == Visibility.Visible ? Snapshot.Source as BitmapSource : null;
         AddPage("All Tabs", "\uE7C4", _tabs);
 
         var steam = new SteamPage(this);
