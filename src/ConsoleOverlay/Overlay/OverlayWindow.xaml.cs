@@ -81,7 +81,16 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         BuildPages();
 
-        _clock = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(10) };
+        // Scrolling the page to the focused control leaves room for its focus ring and halo, which reach past its
+        // edges, so they aren't cut off at the top or bottom of the page.
+        PageHost.AddHandler(RequestBringIntoViewEvent, new RequestBringIntoViewEventHandler((_, e) =>
+        {
+            if (!e.TargetRect.IsEmpty || e.TargetObject is not FrameworkElement target || target.ActualWidth <= 0) return;
+            e.Handled = true;
+            target.BringIntoView(new Rect(-16, -16, target.ActualWidth + 32, target.ActualHeight + 32));
+        }));
+
+        _clock =new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(10) };
         _clock.Tick += (_, _) => UpdateClock();
 
         // Diagnostics for stutter reports: notes in the log when the UI thread was blocked while the overlay is open.
