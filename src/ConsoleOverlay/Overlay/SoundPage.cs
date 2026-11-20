@@ -49,8 +49,9 @@ internal sealed class SoundPage : IOverlayPage
     };
     private readonly StackPanel _mixer = new();
     private readonly List<Button> _appButtons = [];
-    private readonly StackPanel _appsLeft = new() { Margin = new Thickness(0, 0, 12, 0) };
-    private readonly StackPanel _appsRight = new() { Margin = new Thickness(12, 0, 0, 0) };
+    // Made new on every rebuild: a panel can only sit in one grid, and the old grid may still hold the old ones.
+    private StackPanel _appsLeft = new();
+    private StackPanel _appsRight = new();
     private readonly Dictionary<string, VolumeRow> _volumeRows = [];
     private string _layoutSignature = "";
     private uint _gameProcessId;
@@ -364,6 +365,8 @@ internal sealed class SoundPage : IOverlayPage
         AddMaster();
 
         // Apps: a list wrapped into two columns (left column first), see MoveVertically.
+        _appsLeft = new StackPanel { Margin = new Thickness(0, 0, 12, 0) };
+        _appsRight = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
         var columns = new Grid { Margin = new Thickness(0, 22, 0, 0) };
         columns.ColumnDefinitions.Add(new ColumnDefinition());
         columns.ColumnDefinitions.Add(new ColumnDefinition());

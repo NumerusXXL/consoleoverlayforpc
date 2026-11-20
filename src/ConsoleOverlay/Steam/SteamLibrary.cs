@@ -135,7 +135,7 @@ internal static class SteamLibrary
             index[appId] = art;
         }
 
-        foreach (var file in SafeFiles(cache, "*.jpg"))
+        foreach (var file in SafeFiles(cache, "*.jpg").Concat(SafeFiles(cache, "*.png")))
         {
             var name = Path.GetFileName(file);
             int underscore = name.IndexOf('_');
@@ -145,7 +145,7 @@ internal static class SteamLibrary
         foreach (var folder in SafeDirectories(cache))
         {
             if (!int.TryParse(Path.GetFileName(folder), out int appId)) continue;
-            foreach (var file in SafeFiles(folder, "*.jpg", SearchOption.AllDirectories))
+            foreach (var file in SafeFiles(folder, "*.jpg", SearchOption.AllDirectories).Concat(SafeFiles(folder, "*.png", SearchOption.AllDirectories)))
                 Note(appId, file);
         }
         return index;
