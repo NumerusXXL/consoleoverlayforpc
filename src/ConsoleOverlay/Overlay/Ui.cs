@@ -66,6 +66,63 @@ internal static class Ui
         VerticalAlignment = VerticalAlignment.Center,
     };
 
+    /// <summary>A grey LB / RB / LT / RT pill, like the ones on the dock.</summary>
+    public static Border Bumper(string text, Thickness margin) => new()
+    {
+        Background = new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF)),
+        CornerRadius = new CornerRadius(10),
+        Height = 22,
+        Padding = new Thickness(8, 0, 8, 0),
+        Margin = margin,
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center },
+    };
+
+    /// <summary>
+    /// A big pill with a controller button in it ("A Play", "X Game page"), the way consoles show what each button
+    /// does. The primary one is white. Not focusable: the controller button presses it, focus stays on the page.
+    /// </summary>
+    public static Button ActionPill(FrameworkElement resources, string key, string label, bool primary, Action onClick)
+    {
+        var ink = primary ? (Brush)resources.FindResource("SelectedTextBrush") : Brushes.White;
+        var glyph = new Border
+        {
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(14),
+            Background = primary ? (Brush)resources.FindResource("SelectedTextBrush") : new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF)),
+            Child = new TextBlock
+            {
+                Text = key,
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(glyph);
+        content.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 16,
+            FontWeight = primary ? FontWeights.SemiBold : FontWeights.Normal,
+            Foreground = ink,
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var button = new Button
+        {
+            Style = (Style)resources.FindResource("ActionPill"),
+            Content = content,
+            Tag = primary ? "primary" : null,
+            Margin = new Thickness(0, 0, 12, 0),
+        };
+        button.Click += (_, _) => onClick();
+        return button;
+    }
+
     public static void Fade(UIElement element, double to, int milliseconds) =>
         element.BeginAnimation(UIElement.OpacityProperty,
             new DoubleAnimation(to, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });

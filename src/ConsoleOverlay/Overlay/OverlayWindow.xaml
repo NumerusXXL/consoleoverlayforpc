@@ -21,20 +21,20 @@
         <Image x:Name="Snapshot" Stretch="Fill" RenderOptions.BitmapScalingMode="Linear" />
         <Image x:Name="SnapshotBlurred" Stretch="Fill" Margin="-40" Opacity="0" RenderOptions.BitmapScalingMode="Linear" />
         <Rectangle x:Name="Dim" Fill="{StaticResource DimBrush}" Opacity="0" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown" />
+        <!-- A fixed gradient (cheap: drawn once) so the title, the buttons and the dock stay readable on bright games. -->
+        <Rectangle x:Name="Shade" Fill="{StaticResource ShadeBrush}" IsHitTestVisible="False" />
 
         <!-- Everything you read and press, scaled up as a whole for the TV-distance sizes (Settings › Appearance › Size).
-             No background, so clicks around the card still reach the dim layer and close the overlay. -->
+             No background, so clicks on empty space still reach the dim layer and close the overlay. -->
         <Grid x:Name="Chrome">
         <Grid.LayoutTransform>
             <ScaleTransform x:Name="ChromeScale" />
         </Grid.LayoutTransform>
 
-        <!-- Page card: frosted glass. A soft shadow, a see-through tint over the blurred game, a light sheen at the
-             top and a hairline edge that is brighter on top, like light catching the rim of a pane. -->
+        <!-- The page: straight on the blurred game, full width, like a console home screen. Title and clock at the
+             top, the page's own layout in the middle, button prompts above the dock. -->
         <Grid x:Name="PageCard"
-              Width="880"
-              Margin="0,56,0,112"
-              HorizontalAlignment="Center"
+              Margin="64,26,64,0"
               Opacity="0"
               RenderTransformOrigin="0.5,0.5">
             <Grid.RenderTransform>
@@ -43,45 +43,42 @@
                     <TranslateTransform x:Name="PageOffset" />
                 </TransformGroup>
             </Grid.RenderTransform>
-            <!-- Soft shadow from two faint rings instead of a blur effect (an effect this size costs every frame). -->
-            <Border CornerRadius="38" Background="#0C000000" Margin="-12,-8,-12,-16" />
-            <Border CornerRadius="32" Background="#16000000" Margin="-6,-3,-6,-9" />
-            <Border CornerRadius="26" Background="{StaticResource GlassBrush}" />
-            <Border CornerRadius="26" Background="{StaticResource GlassSheenBrush}" />
-            <Border CornerRadius="26" BorderBrush="{StaticResource GlassEdgeBrush}" BorderThickness="1" />
-            <Grid Margin="32,28,32,22">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-                <DockPanel Grid.Row="0" Margin="0,0,0,22" LastChildFill="False">
-                    <TextBlock x:Name="PageTitleText" DockPanel.Dock="Left" Style="{StaticResource PageTitle}">
-                        <TextBlock.RenderTransform>
-                            <TranslateTransform x:Name="TitleOffset" />
-                        </TextBlock.RenderTransform>
-                    </TextBlock>
-                    <TextBlock x:Name="ClockText" DockPanel.Dock="Right" VerticalAlignment="Bottom" Margin="0,0,0,4"
-                               FontSize="14" Foreground="{StaticResource SubtleTextBrush}" />
-                </DockPanel>
+            <DockPanel Grid.Row="0" LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform x:Name="TitleOffset" />
+                    </StackPanel.RenderTransform>
+                    <TextBlock x:Name="PageTitleText" Style="{StaticResource PageTitle}" VerticalAlignment="Bottom" />
+                    <TextBlock x:Name="PageSubtitleText" Style="{StaticResource PageSubtitle}" VerticalAlignment="Bottom" Margin="14,0,0,3" />
+                </StackPanel>
+                <TextBlock x:Name="ClockText" DockPanel.Dock="Right" VerticalAlignment="Bottom"
+                           FontFamily="{StaticResource DisplayFont}" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock x:Name="DateText" DockPanel.Dock="Right" VerticalAlignment="Bottom" Margin="0,0,14,3"
+                           Style="{StaticResource PageSubtitle}" />
+            </DockPanel>
 
-                <ScrollViewer Grid.Row="1" x:Name="PageScroller" VerticalScrollBarVisibility="Hidden" Focusable="False">
-                    <Grid x:Name="PageHost" />
-                </ScrollViewer>
+            <ScrollViewer Grid.Row="1" x:Name="PageScroller" Margin="0,26,0,0" VerticalScrollBarVisibility="Hidden" Focusable="False">
+                <Grid x:Name="PageHost" />
+            </ScrollViewer>
 
-                <!-- Button prompts, drawn like a console's: a colored A, a red B, LB / RB pills... -->
-                <WrapPanel Grid.Row="2" x:Name="PageHint" Margin="0,16,0,0" />
-            </Grid>
+            <!-- Button prompts, drawn like a console's: a colored A, a red B, LB / RB pills... Kept small, at the
+                 right, just above the dock. -->
+            <WrapPanel Grid.Row="2" x:Name="PageHint" HorizontalAlignment="Right" Margin="0,12,0,100" Opacity="0.85" />
         </Grid>
 
         <!-- Dock -->
         <Border x:Name="Dock"
-                Margin="0,0,0,36"
+                Margin="0,0,0,26"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Bottom"
                 Background="{StaticResource DockBrush}"
-                BorderBrush="{StaticResource GlassEdgeBrush}"
+                BorderBrush="{StaticResource DockEdgeBrush}"
                 BorderThickness="1"
                 CornerRadius="30"
                 Padding="8"
@@ -90,11 +87,11 @@
                 <TranslateTransform x:Name="DockOffset" />
             </Border.RenderTransform>
             <StackPanel Orientation="Horizontal">
-                <Border Background="#33FFFFFF" CornerRadius="7" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="8,0,6,0">
+                <Border Background="#30FFFFFF" CornerRadius="11" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="8,0,6,0">
                     <TextBlock Text="LB" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
                 </Border>
                 <StackPanel x:Name="DockItems" Orientation="Horizontal" />
-                <Border Background="#33FFFFFF" CornerRadius="7" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="6,0,8,0">
+                <Border Background="#30FFFFFF" CornerRadius="11" Height="24" Padding="8,0" VerticalAlignment="Center" Margin="6,0,8,0">
                     <TextBlock Text="RB" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
                 </Border>
             </StackPanel>
