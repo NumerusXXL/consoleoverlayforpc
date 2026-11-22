@@ -294,7 +294,7 @@ internal sealed class SteamFriendPage
         _chatMessage.Visibility = Visibility.Collapsed;
         FitChat();
         await _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { });
-        if (ScreenRect(_chatFrame) is { } rect) chat.Attach(rect);
+        if (ScreenRect(_chatFrame) is { } placed) chat.Attach(placed.Rect, placed.Radius);
         HintChanged?.Invoke();
     }
 
@@ -513,23 +513,25 @@ internal sealed class SteamFriendPage
 
     private void PlaceChat()
     {
-        if (_chat is { } chat && ScreenRect(_chatFrame) is { } rect) chat.Place(rect);
+        if (_chat is { } chat && ScreenRect(_chatFrame) is { } placed) chat.Place(placed.Rect, placed.Radius);
     }
 
     /// <summary>Where an element is on screen, in pixels (the overlay is scaled for TVs, so this goes through WPF).</summary>
-    private static Native.RECT? ScreenRect(FrameworkElement element)
+    /// <summary>With the frame's corner radius in pixels, so the Steam window gets the same rounded corners.</summary>
+    private (Native.RECT Rect, int Radius)? ScreenRect(Border element)
     {
-        if (!element.IsVisible || PresentationSource.FromVisual(element) is null) return null;
+        if (!element.IsVisible || element.ActualWidth <= 0 || PresentationSource.FromVisual(element) is null) return null;
         var a = element.PointToScreen(new Point(0, 0));
         var b = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
-        const int inset = 6; // inside the rounded corners
-        return new Native.RECT
+        double scale = (b.X - a.X) / element.ActualWidth;
+        var rect = new Native.RECT
         {
-            Left = (int)Math.Round(a.X) + inset,
-            Top = (int)Math.Round(a.Y) + inset,
-            Right = (int)Math.Round(b.X) - inset,
-            Bottom = (int)Math.Round(b.Y) - inset,
+            Left = (int)Math.Round(a.X),
+            Top = (int)Math.Round(a.Y),
+            Right = (int)Math.Round(b.X),
+            Bottom = (int)Math.Round(b.Y),
         };
+        return (rect, (int)Math.Round(element.CornerRadius.TopLeft * scale));
     }
 
     // ---- Loading ----------------------------------------------------------------------------
