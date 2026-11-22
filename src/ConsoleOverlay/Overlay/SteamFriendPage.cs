@@ -284,6 +284,7 @@ internal sealed class SteamFriendPage
         }
         if (chat is null)
         {
+            FocusOverlay(); // Steam may have taken focus while it tried
             _chatFailed = true;
             _chatMessage.Text = "Steam didn't open a chat window. Is the Steam app running and signed in? "
                 + "Press X to open the chat in Steam instead.";

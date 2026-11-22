@@ -54,6 +54,12 @@ internal sealed class SteamChatWindow
     /// <summary>The chat window placed in the overlay right now (the overlay stays open while it has focus).</summary>
     public static SteamChatWindow? Active { get; private set; }
 
+    /// <summary>
+    /// A chat is being opened: Steam brings its chat window to the front by itself, which takes focus from the overlay
+    /// before the window is placed. The overlay must not close then.
+    /// </summary>
+    public static bool Opening { get; private set; }
+
     public IntPtr Hwnd { get; }
 
     /// <summary>The window still exists (Steam can close or re-create it, for example after an update).</summary>
@@ -64,6 +70,28 @@ internal sealed class SteamChatWindow
     /// their name, or a new Steam window that appeared. Null if Steam didn't open one within a few seconds.
     /// </summary>
     public static async Task<SteamChatWindow?> OpenAsync(string steamId, string name, CancellationToken cancel)
+    {
+        Opening = true;
+        try
+        {
+            return await FindAsync(steamId, name, cancel);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Steam chat: opening the chat failed: {ex}");
+            return null;
+        }
+        finally
+        {
+            Opening = false;
+        }
+    }
+
+    private static async Task<SteamChatWindow?> FindAsync(string steamId, string name, CancellationToken cancel)
     {
         var before = new HashSet<IntPtr>(SteamWindows().ConvertAll(w => w.Hwnd));
         try
@@ -165,18 +193,25 @@ internal sealed class SteamChatWindow
     private void OnWindowEvent(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
         if (hwnd != Hwnd || idObject != 0 || _released || _snapping) return;
-        switch (eventType)
+        try
         {
-            case Native.EVENT_SYSTEM_MOVESIZESTART:
-                Native.PostMessage(Hwnd, Native.WM_CANCELMODE, IntPtr.Zero, IntPtr.Zero); // ends the drag
-                break;
-            case Native.EVENT_SYSTEM_MINIMIZESTART:
-                Native.ShowWindow(Hwnd, Native.SW_RESTORE);
-                SnapBack();
-                break;
-            case Native.EVENT_OBJECT_LOCATIONCHANGE:
-                SnapBack();
-                break;
+            switch (eventType)
+            {
+                case Native.EVENT_SYSTEM_MOVESIZESTART:
+                    Native.PostMessage(Hwnd, Native.WM_CANCELMODE, IntPtr.Zero, IntPtr.Zero); // ends the drag
+                    break;
+                case Native.EVENT_SYSTEM_MINIMIZESTART:
+                    Native.ShowWindow(Hwnd, Native.SW_RESTORE);
+                    SnapBack();
+                    break;
+                case Native.EVENT_OBJECT_LOCATIONCHANGE:
+                    SnapBack();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Steam chat: keeping the window in place failed: {ex.Message}"); // never close the overlay over it
         }
     }
 
@@ -227,6 +262,19 @@ internal sealed class SteamChatWindow
     }
 
     public bool HasFocus => Native.GetForegroundWindow() == Hwnd;
+
+    /// <summary>
+    /// The window, or one of Steam's own pop-ups for it (a right-click menu, the emoji picker): they belong to the same
+    /// Steam process, and the overlay stays open while they have focus.
+    /// </summary>
+    public bool Owns(IntPtr window)
+    {
+        if (window == Hwnd) return true;
+        if (window == IntPtr.Zero) return false;
+        Native.GetWindowThreadProcessId(Hwnd, out uint ours);
+        Native.GetWindowThreadProcessId(window, out uint theirs);
+        return ours != 0 && ours == theirs;
+    }
 
     /// <summary>The middle of the conversation, in screen pixels (where the pointer starts, and scrolling happens).</summary>
     public Native.POINT Middle => new() { X = _placed.Left + _placed.Width / 2, Y = _placed.Top + _placed.Height / 2 };
