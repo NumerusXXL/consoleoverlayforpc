@@ -46,8 +46,9 @@ internal sealed class SteamFriendPage
     private readonly StackPanel _text;
 
     // Chat: Steam's own chat window sits over _chatFrame; the overlay's keyboard and the line you type go under it.
-    private readonly StackPanel _chatPanel = new() { Margin = new Thickness(0, 18, 0, 0), Visibility = Visibility.Collapsed };
-    private readonly Border _chatFrame = new() { CornerRadius = new CornerRadius(20), Background = new SolidColorBrush(Color.FromRgb(0x17, 0x1D, 0x25)) };
+    private readonly StackPanel _chatPanel = new() { Margin = new Thickness(0, 26, 0, 0), Visibility = Visibility.Collapsed };
+    private static readonly Brush ChatFrameBrush = new SolidColorBrush(Color.FromRgb(0x17, 0x1D, 0x25));
+    private readonly Border _chatFrame = new() { CornerRadius = new CornerRadius(20), Background = ChatFrameBrush };
     private readonly TextBlock _chatMessage = new() { FontSize = 20, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24) };
     private readonly Border _draftBox = new() { CornerRadius = new CornerRadius(18), Padding = new Thickness(20, 10, 20, 11), Margin = new Thickness(0, 12, 0, 0), Visibility = Visibility.Collapsed };
     private readonly TextBlock _draft = new() { FontSize = 20, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -269,6 +270,7 @@ internal sealed class SteamFriendPage
         _chatPanel.Visibility = Visibility.Visible;
         _chatMessage.Text = "Opening your chat with " + friend.Name + " in Steam…";
         _chatMessage.Visibility = Visibility.Visible;
+        _chatFrame.Background = ChatFrameBrush; // a placeholder until Steam's window sits there
         Keyboard.ClearFocus();
         FitChat();
         HintChanged?.Invoke();
@@ -302,6 +304,8 @@ internal sealed class SteamFriendPage
         }
         _chat = chat;
         _chatMessage.Visibility = Visibility.Collapsed;
+        // Steam's window fills the frame itself, cut to the same rounded corners; no edge of ours peeks out around it.
+        _chatFrame.Background = Brushes.Transparent;
         FitChat();
         await _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { });
         if (ScreenRect(_chatFrame) is { } placed)

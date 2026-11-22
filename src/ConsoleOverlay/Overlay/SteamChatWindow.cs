@@ -46,10 +46,16 @@ internal sealed class SteamChatWindow
     }
 
     /// <summary>
-    /// The height of Steam's own title strip at the top of the chat window (window buttons and chat tabs), cut away so
-    /// the conversation starts right under the overlay's header. 32 at 100 % scaling, more on a scaled screen.
+    /// Steam's own strips at the top of the chat window, cut away so the conversation starts right under the overlay's
+    /// header: the title bar (window buttons) and the row of chat tabs with the friend's picture, 80 px together at
+    /// 100 % scaling (measured on Misha's screen), more on a scaled screen.
     /// </summary>
-    private int TitleStrip => (int)Math.Round(32 * Math.Max(96, Native.GetDpiForWindow(Hwnd)) / 96.0);
+    private int TitleStrip => Scaled(80);
+
+    /// <summary>Steam draws a resize grip in its bottom-right corner; the window reaches this far past the frame so it's cut off.</summary>
+    private int GripMargin => Scaled(14);
+
+    private int Scaled(int pixels) => (int)Math.Round(pixels * Math.Max(96, Native.GetDpiForWindow(Hwnd)) / 96.0);
 
     /// <summary>The chat window placed in the overlay right now (the overlay stays open while it has focus).</summary>
     public static SteamChatWindow? Active { get; private set; }
@@ -172,11 +178,11 @@ internal sealed class SteamChatWindow
         if (!Alive) return;
         _placed = rect;
         _radius = radius;
-        int strip = TitleStrip;
+        int strip = TitleStrip, grip = GripMargin;
         _snapping = true;
         try
         {
-            Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, rect.Left, rect.Top - strip, rect.Width, rect.Height + strip,
+            Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, rect.Left, rect.Top - strip, rect.Width + grip, rect.Height + strip + grip,
                 Native.SWP_SHOWWINDOW | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER | Native.SWP_FRAMECHANGED);
             // The region is in window coordinates; Windows owns it after this call.
             var region = Native.CreateRoundRectRgn(0, strip, rect.Width + 1, strip + rect.Height + 1, radius * 2, radius * 2);
