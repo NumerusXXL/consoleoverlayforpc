@@ -710,9 +710,10 @@ internal sealed class SettingsPage : IOverlayPage
             () => "", () => OpenUrl(Steam.SteamFriends.ApiKeyPage));
 
         Header("Buying and chat", first: false);
-        Note("Steam has no way for other apps to buy games, send chat messages or game invites, so those open in the Steam "
-            + "app, signed in as you. Nothing logs in to your account from Console Overlay.");
-        Toggle("steam-bigpicture", "Open them in Big Picture", "Steam's controller-friendly mode, so buying and chat work with the controller too",
+        Note("Chat on a friend's page is the Steam app's own chat window, placed inside the overlay. Buying opens in the "
+            + "Steam app. Steam has no way for other apps to buy games or send messages, so Console Overlay never logs in "
+            + "to your account; it only places Steam's window and types what you type.");
+        Toggle("steam-bigpicture", "Open buying in Big Picture", "Steam's controller-friendly mode, so buying works with the controller too",
             () => Settings.SteamBigPicture, on => Settings.SteamBigPicture = on);
     }
 
