@@ -2,7 +2,7 @@
 
 A lightweight, controller-friendly overlay for Windows, in the spirit of the Xbox Game Bar but built around a gamepad first.
 
-Status: v1.1 in progress. Window switcher, Steam library, shortcuts, media, sound, Discord voice controls, capture and performance stats, all reachable from a controller.
+Status: v1.1 in progress. Window switcher, Steam library, store and friends, shortcuts, media, sound, Discord voice controls, capture and performance stats, all reachable from a controller.
 
 ## Roadmap
 
@@ -45,13 +45,39 @@ If something goes wrong, the log is at `%APPDATA%\ConsoleOverlay\log.txt`. The l
 
 Everything works from the keyboard alone. As soon as you press a key, the hints at the bottom switch to keyboard keys.
 
-On the **Steam** page, your installed Steam games sit as covers, read from Steam's own files on your PC (no sign-in or API key needed). **Recent** shows what you played last, **Installed** shows everything A–Z; LT / RT (or Tab) switches between them.
+On the **Steam** page, LT / RT (or Tab) switches between four views: **Recent**, **Installed**, **Store** and **Friends**.
+
+**Recent** and **Installed** show your installed Steam games as covers, read from Steam's own files on your PC (no sign-in or API key needed). Recent shows what you played last, Installed shows everything A–Z.
 
 | | Controller | Keyboard |
 |---|---|---|
 | Play the game (or go back to it, if it's the one running) | A | Enter |
 | Open the game's page in Steam | X | X |
-| Open Steam friends | Y | Y |
+| Go to Friends | Y | Y |
+
+**Store** shows the Steam Store's shelves (Specials, Top sellers, New releases, Coming soon) as big tiles with prices and discounts. ↑ / ↓ changes shelf.
+
+| | Controller | Keyboard |
+|---|---|---|
+| Open the game's store page in the overlay, to buy it | A | Enter |
+| Open the game's store page in the Steam app instead | X | X |
+| Search (on-screen keyboard, or just type) | Y | Y |
+
+Buying happens on Steam's own store page and checkout, opened inside the overlay (it uses Microsoft Edge WebView2, which comes with Windows 11 and with Edge on Windows 10). The first time, sign in on Steam's own sign-in page: scanning the QR code with the Steam phone app is the easiest way with a controller. The sign-in is remembered on this PC; Settings › Steam signs you out. Console Overlay never sees your password or card details.
+
+In the overlay's browser the D-pad moves a white ring between links and buttons (on a store page it starts on **Add to Cart**), A presses, Y opens the on-screen keyboard (D-pad and A type, X deletes, Y is a space, LT is Shift, RT is Enter, EN / RU switches letters), LT / RT scroll, X opens the same page in the Steam app, and B goes back. The mouse and keyboard work there too. Card fields that a payment provider shows inside its own frame may need the mouse.
+
+**Friends** shows your Steam friends: in a game first, then online, then offline.
+
+| | Controller | Keyboard |
+|---|---|---|
+| Message them (Steam web chat, in the overlay, opens on their chat) | A | Enter |
+| Invite them to your game: opens Steam's chat window with them, where **Invite to Game** is | X | X |
+| Join their game (when Steam allows joining it), otherwise their profile | Y | Y |
+
+The list comes from the Steam app on your PC. To see who is online and what they are playing, add your own **Steam Web API key** in Settings › Steam (get one free at [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey); any domain name works, like `localhost`). It stays on your PC and is only sent to Steam.
+
+What Steam doesn't allow: Valve has no public way for other apps to send chat messages or game invites. So messages are typed on Steam's own web chat (inside the overlay), and invites are sent from the Steam app's chat window, which the X button opens on the right friend. Console Overlay doesn't use unofficial chat tricks that could get an account flagged.
 
 On the **Shortcuts** page, your own apps, games and links sit as tiles. A launches one (the overlay closes first), X removes it (press twice). The **Add** tile adds an app or game from the Start menu (Steam, Epic and other launchers put their games there; type to search, or LT / RT to jump between letters), a link like `youtube.com` or `steam://`, or any file you browse to.
 
@@ -110,6 +136,7 @@ The **Settings** page in the overlay has a list of sections on the left. Moving 
 - **Games**: what to do with exclusive fullscreen games, and which games to skip. Open the overlay over a game and it offers to skip that one.
 - **Capture**: who makes clips and recordings (NVIDIA app or Xbox Game Bar), and where screenshots go.
 - **Performance**: stats in the corner on or off and which corner, and permission to count frames.
+- **Steam**: your Steam Web API key (for who is online on Friends; type it, or X to paste), a link to get one, and signing out of Steam in the overlay's store and chat.
 - **Discord**: enter your Discord app's Client ID and Client Secret (type them, or X to paste from the clipboard), open the setup guide, sign out.
 - **About**: version, check for updates, open the log, quit.
 
@@ -123,6 +150,7 @@ Everything is stored in `%APPDATA%\ConsoleOverlay\settings.json`. You can still 
   "ExclusiveFullscreenExcludedGames": [ "oldgame.exe" ],
   "DiscordClientId": "",
   "DiscordClientSecret": "",
+  "SteamWebApiKey": "",
   "AccentColor": "White",
   "Background": "Blur",
   "ClockFormat": "System",

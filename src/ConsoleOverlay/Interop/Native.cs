@@ -51,6 +51,11 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool IsWindow(IntPtr hWnd);
 
+    public const uint GA_ROOTOWNER = 3;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 

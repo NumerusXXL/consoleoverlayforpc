@@ -31,6 +31,7 @@ internal sealed class SettingsPage : IOverlayPage
         new("look", "Appearance", ""),
         new("startup", "Startup", ""),
         new("games", "Games", ""),
+        new("steam", "Steam", ""),
         new("discord", "Discord", ""),
         new("about", "About", ""),
     ];
@@ -58,7 +59,7 @@ internal sealed class SettingsPage : IOverlayPage
     private bool _comboCancelled;
     private string _comboLive = "";
 
-    private string? _editing; // "id" or "secret"
+    private string? _editing; // "id", "secret" (Discord) or "steamkey"
     private Control? _editBox;
 
     /// <summary>Close the overlay (without going back to the game), then run this.</summary>
@@ -333,7 +334,7 @@ internal sealed class SettingsPage : IOverlayPage
         var s = Settings;
         return string.Join("|", _section, _editing, _message, _messageIsError, _gameName,
             string.Join(",", s.ExclusiveFullscreenExcludedGames),
-            s.DiscordClientId.Length > 0, s.DiscordClientSecret.Length > 0);
+            s.DiscordClientId.Length > 0, s.DiscordClientSecret.Length > 0, s.SteamWebApiKey.Length > 0);
     }
 
     /// <summary>Rebuilds the section only when its rows change, so focus and the focus ring stay put otherwise.</summary>
@@ -411,6 +412,7 @@ internal sealed class SettingsPage : IOverlayPage
             case "games": BuildGames(); break;
             case "capture": BuildCapture(); break;
             case "performance": BuildPerformance(); break;
+            case "steam": if (_editing is null) BuildSteam(); else BuildField(); break;
             case "discord": if (_editing is null) BuildDiscord(); else BuildField(); break;
             default: BuildAbout(); break;
         }
@@ -694,6 +696,34 @@ internal sealed class SettingsPage : IOverlayPage
         });
     }
 
+    // ---- Steam ------------------------------------------------------------------------------
+
+    /// <summary>Signs out of Steam in the overlay's store and chat (set by the overlay).</summary>
+    public Func<System.Threading.Tasks.Task<bool>>? SignOutOfSteamBrowser { get; set; }
+
+    private void BuildSteam()
+    {
+        Header("Friends", first: true);
+        Note("Your friends list comes from the Steam app on this PC. To see who is online and what they are playing, "
+            + "add your own Steam Web API key. Steam gives one to any account for free.");
+        Row("steam-key", "Steam Web API key", "Stays on this PC and is only ever sent to Steam",
+            () => Settings.SteamWebApiKey.Trim() is { Length: > 0 } k ? "••••" + k[^Math.Min(4, k.Length)..] : "Not set",
+            () => EditField("steamkey"));
+        Row("steam-key-page", "Get a Web API key", "Opens steamcommunity.com/dev/apikey in your browser. Any domain name works, like localhost.",
+            () => "", () => OpenUrl(Steam.SteamFriends.ApiKeyPage));
+
+        Header("Store and chat", first: false);
+        Note("The store, checkout and chat are Steam's own pages, opened inside the overlay. You sign in on Steam's sign-in "
+            + "page (the QR code works with the Steam phone app) and pay on Steam's checkout; Console Overlay never sees "
+            + "your password or payment details.");
+        Row("steam-signout", "Sign out of Steam in the overlay", "Forgets the sign-in of the overlay's store and chat. The Steam app stays signed in.", null, async () =>
+        {
+            if (SignOutOfSteamBrowser is null) return;
+            bool done = await SignOutOfSteamBrowser();
+            ShowMessage(done ? "Signed out of Steam in the overlay." : "Couldn't sign out yet. Try again in a moment.", error: !done);
+        });
+    }
+
     private void EditField(string field)
     {
         _editing = field;
@@ -703,9 +733,10 @@ internal sealed class SettingsPage : IOverlayPage
 
     private void BuildField()
     {
-        bool secret = _editing == "secret";
-        Header(secret ? "Discord Client Secret" : "Discord Client ID", first: true);
-        string current = secret ? Settings.DiscordClientSecret : Settings.DiscordClientId;
+        bool steamKey = _editing == "steamkey";
+        bool secret = _editing == "secret" || steamKey;
+        Header(steamKey ? "Steam Web API key" : secret ? "Discord Client Secret" : "Discord Client ID", first: true);
+        string current = steamKey ? Settings.SteamWebApiKey : secret ? Settings.DiscordClientSecret : Settings.DiscordClientId;
 
         Control box = secret
             ? new PasswordBox { Password = current, Style = (Style)_resources.FindResource("FieldPasswordBox") }
@@ -772,6 +803,20 @@ internal sealed class SettingsPage : IOverlayPage
             ShowMessageKeepingField("A Client ID is only digits, like 123456789012345678. Check that you copied the Client ID.");
             return;
         }
+        if (_editing == "steamkey")
+        {
+            if (value.Length > 0 && (value.Length != 32 || !value.All(char.IsAsciiHexDigit)))
+            {
+                ShowMessageKeepingField("A Steam Web API key is 32 letters and digits, like 0123456789ABCDEF0123456789ABCDEF.");
+                return;
+            }
+            Settings.SteamWebApiKey = value.ToUpperInvariant();
+            _host.Save();
+            _editing = null;
+            ShowMessage(value.Length > 0 ? "Web API key saved. The Steam page now shows who is online." : "Web API key removed.");
+            Focus(DetailItems().FirstOrDefault(c => c.Tag as string == "steam-key"));
+            return;
+        }
 
         bool secret = _editing == "secret";
         if (secret) Settings.DiscordClientSecret = value;
@@ -785,7 +830,7 @@ internal sealed class SettingsPage : IOverlayPage
 
     private void CancelField()
     {
-        string field = _editing == "secret" ? "discord-secret" : "discord-id";
+        string field = _editing switch { "secret" => "discord-secret", "steamkey" => "steam-key", _ => "discord-id" };
         _editing = null;
         ShowMessage(null);
         Focus(DetailItems().FirstOrDefault(c => c.Tag as string == field));

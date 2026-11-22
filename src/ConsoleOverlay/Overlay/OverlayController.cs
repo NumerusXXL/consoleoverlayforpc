@@ -41,7 +41,10 @@ public sealed class OverlayController
                 return;
             _window.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             {
-                if (IsOpen && !_window.KeepOpen && Native.GetForegroundWindow() != _window.Handle)
+                var foreground = Native.GetForegroundWindow();
+                // A pop-up of our own (the store's browser opens one for a drop-down list) keeps it open.
+                bool ours = foreground == _window.Handle || Native.GetAncestor(foreground, Native.GA_ROOTOWNER) == _window.Handle;
+                if (IsOpen && !_window.KeepOpen && !ours)
                 {
                     Log.Write("Overlay lost focus to another window; closing.");
                     Close(restorePrevious: false);

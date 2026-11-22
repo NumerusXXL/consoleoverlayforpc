@@ -21,7 +21,8 @@ namespace ConsoleOverlay.Overlay;
 
 /// <summary>
 /// The overlay: a blurred snapshot of the game, the page laid out full width over it, and the dock of pages at the
-/// bottom. Pages: All Tabs (opens first), Steam, Shortcuts, Sound, Discord, Settings.
+/// bottom. Pages: All Tabs (opens first), Steam (library, store, friends), Shortcuts, Media, Sound, Discord, Capture,
+/// Performance, Settings.
 /// </summary>
 public partial class OverlayWindow : Window
 {
@@ -52,6 +53,7 @@ public partial class OverlayWindow : Window
     private Page _settingsPage = null!;
     private SettingsPage _settings = null!;
     private SoundPage _sound = null!;
+    private SteamPage _steam = null!;
     private ShortcutsPage _shortcuts = null!;
     private CapturePage _capture = null!;
     private PerformancePage _performance = null!;
@@ -175,10 +177,11 @@ public partial class OverlayWindow : Window
         _tabs.GameSnapshot = () => Snapshot.Visibility == Visibility.Visible ? Snapshot.Source as BitmapSource : null;
         AddPage("All Tabs", "\uE7C4", _tabs);
 
-        var steam = new SteamPage(this);
-        steam.BackToGame += () => CloseRequested?.Invoke();
-        steam.CloseThen += action => CloseThenRequested?.Invoke(action);
-        AddPage("Steam", "\uE8F1", steam);
+        _steam = new SteamPage(this);
+        _steam.BackToGame += () => CloseRequested?.Invoke();
+        _steam.CloseThen += action => CloseThenRequested?.Invoke(action);
+        _steam.OpenSettings += () => OpenSettingsSection("steam");
+        AddPage("Steam", "\uE8F1", _steam);
 
         _shortcuts = new ShortcutsPage(this);
         _shortcuts.CloseThen += action => CloseThenRequested?.Invoke(action);
@@ -207,6 +210,7 @@ public partial class OverlayWindow : Window
 
         _settings = new SettingsPage(this);
         _settings.CloseThen += action => CloseThenRequested?.Invoke(action);
+        _settings.SignOutOfSteamBrowser = () => _steam.SignOutOfBrowserAsync();
         _settingsPage = AddPage("Settings", "\uE713", _settings);
     }
 
@@ -214,6 +218,7 @@ public partial class OverlayWindow : Window
     public void SetSettingsHost(ISettingsHost host)
     {
         _settings.SetHost(host);
+        _steam.SetHost(host);
         _shortcuts.SetHost(host);
         _capture.SetHost(host);
         _performance.SetHost(host);

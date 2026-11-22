@@ -37,6 +37,12 @@ public sealed class AppSettings
     /// <summary>Client Secret of the same Discord app. It stays on this PC and is only sent to Discord.</summary>
     public string DiscordClientSecret { get; set; } = "";
 
+    /// <summary>
+    /// Your Steam Web API key (from steamcommunity.com/dev/apikey). Lets the Steam page show which friends are online
+    /// and what they are playing. It stays on this PC and is only sent to Steam.
+    /// </summary>
+    public string SteamWebApiKey { get; set; } = "";
+
     /// <summary>Color of the focus ring and the current page's pill: White, Blue, Green, Purple, Orange or Pink.</summary>
     public string AccentColor { get; set; } = "White";
 

@@ -15,7 +15,7 @@ internal static class HintChips
     // Longest first, so "LB / RB" wins over "B".
     private static readonly string[] Prefixes =
     [
-        "LB / RB", "LT / RT", "Q / E", "Ctrl+V", "← →", "Enter", "Esc", "Tab", "Delete", "A", "B", "X", "Y",
+        "LB / RB", "LT / RT", "Q / E", "Ctrl+V", "← →", "↑ ↓", "Enter", "Esc", "Tab", "Delete", "A", "B", "X", "Y",
     ];
 
 
@@ -31,7 +31,7 @@ internal static class HintChips
             var prefix = Prefixes.FirstOrDefault(p => part.StartsWith(p + " ", StringComparison.Ordinal));
             if (prefix is not null)
             {
-                foreach (var button in prefix.Split(prefix == "← →" ? " " : " / ", StringSplitOptions.RemoveEmptyEntries))
+                foreach (var button in prefix.Split(prefix is "← →" or "↑ ↓" ? " " : " / ", StringSplitOptions.RemoveEmptyEntries))
                     item.Children.Add(Chip(button.Trim()));
                 label = part[(prefix.Length + 1)..];
             }

@@ -17,9 +17,12 @@ using ConsoleOverlay.Steam;
 namespace ConsoleOverlay.Overlay;
 
 /// <summary>
-/// The Steam page: your installed Steam games as covers, read from Steam's own files on disk.
-/// A plays the focused game (or goes back to it when it is the one running), X opens its page in Steam,
-/// Y opens Steam friends, LT / RT switch between Recent and Installed.
+/// The Steam page, in four views switched with LT / RT:
+/// Recent and Installed: your installed Steam games as covers, read from Steam's own files on disk. A plays the focused
+/// game (or goes back to it when it is the one running), X opens its page in Steam, Y goes to Friends.
+/// Store: the Steam Store's shelves and search (<see cref="SteamStoreView"/>); buying happens on Steam's own pages.
+/// Friends: your Steam friends, chat and joining their games (<see cref="SteamFriendsView"/>).
+/// Store pages and chat open in the overlay's browser (<see cref="SteamBrowser"/>), which fills the page.
 /// </summary>
 internal sealed class SteamPage : IOverlayPage
 {
@@ -28,7 +31,7 @@ internal sealed class SteamPage : IOverlayPage
     private const double CoverGap = 18; // CoverButton's right margin
     private const int RecentCount = 30;
 
-    private enum View { Recent, Installed }
+    private enum View { Recent, Installed, Store, Friends }
 
     private sealed class Cover
     {
@@ -38,8 +41,16 @@ internal sealed class SteamPage : IOverlayPage
         public bool ArtRequested { get; set; }
     }
 
+    private static readonly View[] Views = [View.Recent, View.Installed, View.Store, View.Friends];
+
     private readonly FrameworkElement _resources;
     private readonly Grid _root = new();
+    private readonly Grid _library = new();
+    private readonly SteamStoreView _store;
+    private readonly SteamFriendsView _friends;
+    private readonly SteamBrowser _browser;
+    private ConsoleOverlay.Settings.ISettingsHost? _host;
+    private bool _browserShown;
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal };
     private readonly ScrollViewer _strip = new()
     {
@@ -72,24 +83,58 @@ internal sealed class SteamPage : IOverlayPage
 
     public event Action? HintChanged;
 
+    /// <summary>Open Settings › Steam.</summary>
+    public event Action? OpenSettings;
+
     public SteamPage(FrameworkElement resources)
     {
         _resources = resources;
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(FocusedHeight + 24) });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         Grid.SetRow(_tabs, 0);
         _tabs.Margin = new Thickness(0, 0, 0, 6);
         _root.Children.Add(_tabs);
 
+        _library.RowDefinitions.Add(new RowDefinition { Height = new GridLength(FocusedHeight + 24) });
+        _library.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(_library, 1);
+        _root.Children.Add(_library);
+
+        _store = new SteamStoreView(resources);
+        _store.OpenPage += (url, title) => OpenBrowser(url, title, null);
+        _store.OpenLink += OpenLink;
+        _store.HintChanged += () => HintChanged?.Invoke();
+        Grid.SetRow(_store.View, 1);
+        _store.View.Visibility = Visibility.Collapsed;
+        _root.Children.Add(_store.View);
+
+        _friends = new SteamFriendsView(resources) { ApiKey = () => _host?.Settings.SteamWebApiKey ?? "" };
+        _friends.OpenPage += OpenBrowser;
+        _friends.OpenLink += OpenLink;
+        _friends.OpenSettings += () => OpenSettings?.Invoke();
+        _friends.HintChanged += () => HintChanged?.Invoke();
+        Grid.SetRow(_friends.View, 1);
+        _friends.View.Visibility = Visibility.Collapsed;
+        _root.Children.Add(_friends.View);
+
+        _browser = new SteamBrowser(resources);
+        _browser.Closed += CloseBrowser;
+        _browser.OpenLink += OpenLink;
+        _browser.HintChanged += () => HintChanged?.Invoke();
+        Grid.SetRow(_browser.View, 0);
+        Grid.SetRowSpan(_browser.View, 2);
+        _browser.View.Visibility = Visibility.Collapsed;
+        _root.Children.Add(_browser.View);
+        _root.SizeChanged += (_, _) => FitBrowser();
+
         // Padding so the focus ring (drawn just outside the cover) isn't cut off by the scrolling strip.
         _covers.Margin = new Thickness(10, 10, 10, 12);
         _strip.Content = _covers;
         _strip.Margin = new Thickness(-10, 0, -10, 0);
         KeyboardNavigation.SetDirectionalNavigation(_covers, KeyboardNavigationMode.Contained);
-        Grid.SetRow(_strip, 1);
-        _root.Children.Add(_strip);
+        Grid.SetRow(_strip, 0);
+        _library.Children.Add(_strip);
 
         _title.Style = (Style)resources.FindResource("HeroTitle");
         _meta.FontSize = 16;
@@ -98,18 +143,37 @@ internal sealed class SteamPage : IOverlayPage
         _info.Children.Add(_title);
         _info.Children.Add(_meta);
         _info.Children.Add(_actions);
-        Grid.SetRow(_info, 2);
-        _root.Children.Add(_info);
+        Grid.SetRow(_info, 1);
+        _library.Children.Add(_info);
 
         BuildTabs();
     }
 
     public Panel Content => _root;
 
-    public string Hint => "LT / RT recent or installed · B back to game · LB / RB other pages";
+    public string Hint => _browserShown ? _browser.Hint : _view switch
+    {
+        View.Store => _store.Hint,
+        View.Friends => _friends.Hint,
+        _ => "LT / RT store and friends · B back to game · LB / RB other pages",
+    };
 
-    public string? Subtitle => _steamFolder is null ? null
-        : _loaded ? $"Library · {_games.Count} installed" : "Library";
+    public string? Subtitle => _browserShown ? null : _view switch
+    {
+        View.Store => _store.Subtitle,
+        View.Friends => _friends.Subtitle,
+        _ => _steamFolder is null ? null : _loaded ? $"Library · {_games.Count} installed" : "Library",
+    };
+
+    /// <summary>The Web API key for friends' online status lives in the settings.</summary>
+    public void SetHost(ConsoleOverlay.Settings.ISettingsHost host) => _host = host;
+
+    /// <summary>Signs out of Steam in the overlay's browser (Settings › Steam).</summary>
+    public System.Threading.Tasks.Task<bool> SignOutOfBrowserAsync()
+    {
+        if (_browserShown) CloseBrowser();
+        return SteamBrowser.SignOutAsync(_browser);
+    }
 
     // ---- IOverlayPage -----------------------------------------------------------------------
 
@@ -117,16 +181,25 @@ internal sealed class SteamPage : IOverlayPage
     {
         _active = true;
         _running = SteamLibrary.RunningAppId();
-        if (!_loaded)
-            ShowMessage("Loading your library…", null);
+        _steamFolder ??= SteamLibrary.SteamFolder();
+        if (_browserShown && _browser.IsOpen)
+        {
+            ShowBrowser(); // come back to the store page or chat you left
+        }
         else
-            Rebuild(keepFocus: false);
+        {
+            _browserShown = false;
+            ShowView();
+        }
         _ = LoadAsync();
     }
 
     public void Deactivate()
     {
         _active = false;
+        _store.Deactivate();
+        _friends.Deactivate();
+        _browser.Hide();
         _loadToken++;
         _artToken++;
         // Covers are decoded again next time (from Windows' file cache, so it's quick); this keeps memory low
@@ -138,21 +211,46 @@ internal sealed class SteamPage : IOverlayPage
         }
     }
 
-    public UIElement? FirstFocus() => _shown.Count > 0 ? _shown[0].Button : null;
+    public UIElement? FirstFocus() => _browserShown ? null : _view switch
+    {
+        View.Store => _store.FirstFocus(),
+        View.Friends => _friends.FirstFocus(),
+        _ => _shown.Count > 0 ? _shown[0].Button : null,
+    };
 
     public bool Handle(NavCommand command, IInputElement? focused)
     {
+        if (_browserShown)
+            return _browser.Handle(command, focused);
+
+        if (_view == View.Store)
+        {
+            if (_store.Handle(command, focused)) return true;
+            if (command == NavCommand.Accept && _store.AcceptWithoutTiles()) return true;
+        }
+        else if (_view == View.Friends && _friends.Handle(command, focused))
+        {
+            return true;
+        }
+
         switch (command)
         {
             case NavCommand.ColumnLeft:
-            case NavCommand.ColumnRight:
-                SwitchView(_view == View.Recent ? View.Installed : View.Recent);
+                SwitchView(Views[Math.Max(0, Array.IndexOf(Views, _view) - 1)]);
                 return true;
+            case NavCommand.ColumnRight:
+                SwitchView(Views[Math.Min(Views.Length - 1, Array.IndexOf(Views, _view) + 1)]);
+                return true;
+        }
+        if (_view is View.Store or View.Friends) return false;
+
+        switch (command)
+        {
             case NavCommand.Secondary:
                 if (Focused(focused) is { } page) OpenLink(SteamLibrary.GamePageLink(page.Game.AppId));
                 return true;
             case NavCommand.Mute:
-                if (_steamFolder is not null) OpenLink(SteamLibrary.FriendsLink);
+                SwitchView(View.Friends);
                 return true;
             case NavCommand.Up or NavCommand.Down:
                 return true; // one row: nothing above or below
@@ -162,9 +260,87 @@ internal sealed class SteamPage : IOverlayPage
 
     public bool HandleKey(Key key, IInputElement? focused)
     {
-        if (key != Key.Tab) return false;
-        SwitchView(_view == View.Recent ? View.Installed : View.Recent);
+        if (key != Key.Tab || _browserShown) return false;
+        bool back = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        int index = Array.IndexOf(Views, _view) + (back ? -1 : 1);
+        SwitchView(Views[(index + Views.Length) % Views.Length]);
         return true;
+    }
+
+    public bool HandleRawKey(KeyEventArgs e) => !_browserShown && _view == View.Store && _store.HandleRawKey(e);
+
+    // ---- Views ------------------------------------------------------------------------------
+
+    /// <summary>Shows the current view and starts it (Store and Friends load from the internet).</summary>
+    private void ShowView()
+    {
+        _browser.View.Visibility = Visibility.Collapsed;
+        _tabs.Visibility = Visibility.Visible;
+        _library.Visibility = _view is View.Recent or View.Installed ? Visibility.Visible : Visibility.Collapsed;
+        _store.View.Visibility = _view == View.Store ? Visibility.Visible : Visibility.Collapsed;
+        _friends.View.Visibility = _view == View.Friends ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_view == View.Store) _store.Activate();
+        else if (_view == View.Friends) _friends.Activate(_steamFolder);
+        else if (!_loaded) ShowMessage("Loading your library…", null);
+        else Rebuild(keepFocus: false);
+        HintChanged?.Invoke();
+    }
+
+    private void OpenBrowser(string url, string title, string? chatWith)
+    {
+        _browserShown = true;
+        ShowBrowser();
+        _browser.Open(url, title, chatWith);
+        HintChanged?.Invoke();
+    }
+
+    private void ShowBrowser()
+    {
+        _store.Deactivate();
+        _friends.Deactivate();
+        _tabs.Visibility = Visibility.Collapsed;
+        _library.Visibility = Visibility.Collapsed;
+        _store.View.Visibility = Visibility.Collapsed;
+        _friends.View.Visibility = Visibility.Collapsed;
+        _browser.View.Visibility = Visibility.Visible;
+        FitBrowser();
+        _browser.Show();
+        HintChanged?.Invoke();
+    }
+
+    /// <summary>B on the first page you opened: back to the Store or Friends view.</summary>
+    private void CloseBrowser()
+    {
+        _browserShown = false;
+        _browser.Hide();
+        if (_active) ShowView();
+        if (_active && FirstFocus() is { } first)
+        {
+            first.Focus();
+            Keyboard.Focus(first);
+        }
+    }
+
+    /// <summary>
+    /// The browser can't scroll with the overlay's page, so it is sized to the space between the title and the
+    /// button prompts.
+    /// </summary>
+    private void FitBrowser()
+    {
+        if (!_browserShown) return;
+        DependencyObject? node = _root;
+        while (node is not null && node is not ScrollViewer)
+            node = VisualTreeHelper.GetParent(node);
+        if (node is ScrollViewer scroller && scroller.ViewportHeight > 0)
+        {
+            _browser.SetHeight(scroller.ViewportHeight - 34);
+            scroller.ScrollToTop();
+        }
+        else
+        {
+            _browser.SetHeight(560);
+        }
     }
 
     // ---- Loading ----------------------------------------------------------------------------
@@ -211,13 +387,13 @@ internal sealed class SteamPage : IOverlayPage
     {
         _tabs.Children.Clear();
         _tabs.Children.Add(Ui.Bumper("LT", new Thickness(0, 0, 8, 0)));
-        foreach (var view in new[] { View.Recent, View.Installed })
+        foreach (var view in Views)
         {
             bool selected = view == _view;
             var tab = new Button
             {
                 Style = (Style)_resources.FindResource("TabPill"),
-                Content = view == View.Recent ? "Recent" : "Installed",
+                Content = view.ToString(),
                 Tag = selected ? "selected" : null,
             };
             var target = view;
@@ -230,13 +406,21 @@ internal sealed class SteamPage : IOverlayPage
     private void SwitchView(View view)
     {
         if (view == _view) return;
+        if (_view == View.Store) _store.Deactivate();
+        if (_view == View.Friends) _friends.Deactivate();
         _view = view;
         BuildTabs();
-        Rebuild(keepFocus: false);
+        ShowView();
+        if (FirstFocus() is { } first)
+        {
+            first.Focus();
+            Keyboard.Focus(first);
+        }
     }
 
     private void Rebuild(bool keepFocus)
     {
+        if (_view is not (View.Recent or View.Installed)) return;
         _covers.Children.Clear();
         _shown.Clear();
         _artToken++;
@@ -373,7 +557,7 @@ internal sealed class SteamPage : IOverlayPage
         _actions.Children.Clear();
         _actions.Children.Add(Ui.ActionPill(_resources, "A", running ? "Back to game" : "Play", primary: true, () => Primary(cover)));
         _actions.Children.Add(Ui.ActionPill(_resources, "X", "Game page", primary: false, () => OpenLink(SteamLibrary.GamePageLink(game.AppId))));
-        _actions.Children.Add(Ui.ActionPill(_resources, "Y", "Steam friends", primary: false, () => OpenLink(SteamLibrary.FriendsLink)));
+        _actions.Children.Add(Ui.ActionPill(_resources, "Y", "Friends", primary: false, () => SwitchView(View.Friends)));
     }
 
     private Cover? Focused(IInputElement? focused) => _shown.FirstOrDefault(c => c.Button == focused);
