@@ -54,6 +54,7 @@ internal sealed class SteamFriendPage
     private readonly OnScreenKeyboard _keyboard;
     private readonly StringBuilder _typed = new();
     private SteamChatWindow? _chat;
+    private Native.RECT _lastPlaced;
     private CancellationTokenSource? _chatCancel;
     private bool _chatOpen;
     private bool _chatFailed;
@@ -126,6 +127,8 @@ internal sealed class SteamFriendPage
         _chatMessage.Foreground = (Brush)resources.FindResource("SoftTextBrush");
         _chatFrame.Child = _chatMessage;
         _chatFrame.SizeChanged += (_, _) => PlaceChat();
+        // The frame also moves without changing size (the header shrinks, the page slides in): follow it exactly.
+        _chatFrame.LayoutUpdated += (_, _) => { if (_chat is not null) PlaceChat(); };
         _draftBox.Background = (Brush)resources.FindResource("TileBrush");
         _draft.Foreground = (Brush)resources.FindResource("TextBrush");
         _draftBox.Child = _draft;
@@ -256,6 +259,8 @@ internal sealed class SteamFriendPage
     private void OpenChat()
     {
         if (_friend is not { } friend) return;
+        SteamChatWindow.BeginOpening(); // Steam may take focus at any moment from here on
+        Log.Write("Steam chat: opening the chat on a friend's page.");
         _chatOpen = true;
         _chatFailed = false;
         _typed.Clear();
@@ -280,14 +285,18 @@ internal sealed class SteamFriendPage
         if (cancel.IsCancellationRequested || !_chatOpen || _friend?.SteamId != friend.SteamId)
         {
             chat?.Release();
+            SteamChatWindow.EndOpening();
             return;
         }
         if (chat is null)
         {
             FocusOverlay(); // Steam may have taken focus while it tried
             _chatFailed = true;
-            _chatMessage.Text = "Steam didn't open a chat window. Is the Steam app running and signed in? "
-                + "Press X to open the chat in Steam instead.";
+            _chatMessage.Text = SteamChatWindow.BigPictureOpen()
+                ? "Steam is in Big Picture mode, which opens chats inside itself. Close Big Picture and press B, then X "
+                    + "to try again, or press X to chat in Big Picture."
+                : "Steam didn't open a chat window. Is the Steam app running and signed in? "
+                    + "Press X to open the chat in Steam instead.";
             HintChanged?.Invoke();
             return;
         }
@@ -295,7 +304,12 @@ internal sealed class SteamFriendPage
         _chatMessage.Visibility = Visibility.Collapsed;
         FitChat();
         await _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { });
-        if (ScreenRect(_chatFrame) is { } placed) chat.Attach(placed.Rect, placed.Radius);
+        if (ScreenRect(_chatFrame) is { } placed)
+        {
+            chat.Attach(placed.Rect, placed.Radius);
+            _lastPlaced = placed.Rect;
+        }
+        else SteamChatWindow.EndOpening();
         HintChanged?.Invoke();
     }
 
@@ -514,7 +528,11 @@ internal sealed class SteamFriendPage
 
     private void PlaceChat()
     {
-        if (_chat is { } chat && ScreenRect(_chatFrame) is { } placed) chat.Place(placed.Rect, placed.Radius);
+        if (_chat is not { } chat || ScreenRect(_chatFrame) is not { } placed) return;
+        var r = placed.Rect;
+        if (r.Left == _lastPlaced.Left && r.Top == _lastPlaced.Top && r.Right == _lastPlaced.Right && r.Bottom == _lastPlaced.Bottom) return;
+        _lastPlaced = r;
+        chat.Place(r, placed.Radius);
     }
 
     /// <summary>Where an element is on screen, in pixels (the overlay is scaled for TVs, so this goes through WPF).</summary>

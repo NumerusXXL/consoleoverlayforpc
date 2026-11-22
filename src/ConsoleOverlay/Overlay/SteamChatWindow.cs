@@ -58,7 +58,14 @@ internal sealed class SteamChatWindow
     /// A chat is being opened: Steam brings its chat window to the front by itself, which takes focus from the overlay
     /// before the window is placed. The overlay must not close then.
     /// </summary>
-    public static bool Opening { get; private set; }
+    public static bool Opening => Environment.TickCount64 < _openingUntil;
+
+    private static long _openingUntil;
+
+    /// <summary>Arms <see cref="Opening"/> before anything is sent to Steam; it lasts until the window is placed (at most 20 s).</summary>
+    public static void BeginOpening() => _openingUntil = Environment.TickCount64 + 20000;
+
+    public static void EndOpening() => _openingUntil = 0;
 
     public IntPtr Hwnd { get; }
 
@@ -71,28 +78,41 @@ internal sealed class SteamChatWindow
     /// </summary>
     public static async Task<SteamChatWindow?> OpenAsync(string steamId, string name, CancellationToken cancel)
     {
-        Opening = true;
+        BeginOpening();
         try
         {
-            return await FindAsync(steamId, name, cancel);
+            var found = await FindAsync(steamId, name, cancel);
+            if (found is null) EndOpening();
+            return found; // stays "opening" until it is placed (Attach)
         }
         catch (OperationCanceledException)
         {
+            EndOpening();
             throw;
         }
         catch (Exception ex)
         {
+            EndOpening();
             Log.Write($"Steam chat: opening the chat failed: {ex}");
             return null;
         }
-        finally
-        {
-            Opening = false;
-        }
     }
+
+    /// <summary>Big Picture is open: Steam then opens chats inside it instead of in a chat window.</summary>
+    public static bool BigPictureOpen() =>
+        SteamWindows().Exists(w => w.Title.Contains("Big Picture", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<SteamChatWindow?> FindAsync(string steamId, string name, CancellationToken cancel)
     {
+        if (BigPictureOpen())
+        {
+            // Close Big Picture first (the official steam:// link for it), so the chat opens as a window.
+            Log.Write("Steam chat: Big Picture is open; closing it so the chat opens as a window.");
+            try { Process.Start(new ProcessStartInfo("steam://close/bigpicture") { UseShellExecute = true })?.Dispose(); }
+            catch (Exception ex) { Log.Write($"Steam chat: could not close Big Picture: {ex.Message}"); }
+            for (int i = 0; i < 20 && BigPictureOpen(); i++) await Task.Delay(250, cancel);
+            await Task.Delay(400, cancel);
+        }
         var before = new HashSet<IntPtr>(SteamWindows().ConvertAll(w => w.Hwnd));
         try
         {
@@ -133,6 +153,7 @@ internal sealed class SteamChatWindow
     public void Attach(Native.RECT rect, int radius)
     {
         Active = this;
+        EndOpening();
         if (Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
         // No frame, title bar or window buttons while it is on the page: nothing to grab, resize or maximize.
         long locked = _style & ~(Native.WS_CAPTION | Native.WS_THICKFRAME | Native.WS_SYSMENU | Native.WS_MINIMIZEBOX | Native.WS_MAXIMIZEBOX);
@@ -285,6 +306,7 @@ internal sealed class SteamChatWindow
     public void Release()
     {
         if (Active == this) Active = null;
+        EndOpening();
         Unlock();
         if (_released || !Native.IsWindow(Hwnd)) return;
         _released = true;
