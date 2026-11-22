@@ -19,10 +19,9 @@ namespace ConsoleOverlay.Overlay;
 /// A friend's page, drawn by the overlay like a console profile: their picture, name and status, Steam level, how long
 /// you have been friends, and the games they played lately as tiles (the game they're in fills the background).
 ///
-/// A on a game plays it if you have it installed, otherwise opens its game page. X opens your chat with them right on
-/// this page: Valve's own Steam web chat fills the page under their name (you sign in on Steam's page once), driven by
-/// the controller with the on-screen keyboard. Game invites aren't in the web chat, so X in the chat opens their chat
-/// in the Steam app, which has Invite to Game. Y joins their game when Steam allows it, or opens their profile in Steam.
+/// A on a game plays it if you have it installed, otherwise opens its game page. X opens your chat with them in the
+/// Steam app (with Invite to Game); Y joins their game when Steam allows it, or opens their profile in Steam. Steam
+/// has no public API for chat, so the conversation itself is in Steam's chat window.
 /// </summary>
 internal sealed class SteamFriendPage
 {
@@ -41,10 +40,6 @@ internal sealed class SteamFriendPage
     private readonly Shelf _games;
     private readonly TextBlock _gameInfo = new() { FontSize = 16, Margin = new Thickness(0, 4, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock _note = new() { FontSize = 15, TextWrapping = TextWrapping.Wrap, MaxWidth = 880, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 14, 0, 0) };
-    private readonly Border _chatHost = new() { Margin = new Thickness(0, 18, 0, 0), Visibility = Visibility.Collapsed };
-    private readonly StackPanel _text;
-    private SteamBrowser? _chat;
-    private bool _chatOpen;
 
     private SteamFriend? _friend;
     private List<RecentGame> _recent = [];
@@ -87,7 +82,7 @@ internal sealed class SteamFriendPage
         _gameInfo.Foreground = (Brush)resources.FindResource("SoftTextBrush");
         _note.Foreground = (Brush)resources.FindResource("SubtleTextBrush");
 
-        var text = _text = new StackPanel { Margin = new Thickness(28, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        var text = new StackPanel { Margin = new Thickness(28, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(_name);
         text.Children.Add(_status);
         text.Children.Add(_facts);
@@ -106,39 +101,25 @@ internal sealed class SteamFriendPage
         _root.Children.Add(_games.View);
         _root.Children.Add(_gameInfo);
         _root.Children.Add(_note);
-        _root.Children.Add(_chatHost);
         _root.Visibility = Visibility.Collapsed;
-        _root.SizeChanged += (_, _) => FitChat();
     }
 
     public FrameworkElement View => _root;
 
     public bool IsOpen => _friend is not null;
 
-    /// <summary>The chat with them is open on this page.</summary>
-    public bool ChatOpen => _chatOpen;
+    public string Hint => _games.Count > 0
+        ? "← → games · B back to friends · LB / RB other pages"
+        : "B back to friends · LB / RB other pages";
 
-    public string Hint => _chatOpen && _chat is not null ? _chat.Hint : _games.Count > 0
-        ? "← → games · X chat · B back to friends · LB / RB other pages"
-        : "X chat · B back to friends · LB / RB other pages";
-
-    /// <summary>Signs out of Steam in the overlay's chat (Settings › Steam).</summary>
-    public Task<bool> SignOutOfChatAsync()
+    public void Open(SteamFriend friend)
     {
-        if (_chatOpen) CloseChat();
-        return SteamBrowser.SignOutAsync(_chat);
-    }
-
-    public void Open(SteamFriend friend, bool chat = false)
-    {
-        if (_chatOpen) CloseChat(focus: false);
         _friend = friend;
         _recent = [];
         _level = null;
         _focusedGame = null;
         _root.Visibility = Visibility.Visible;
         Resume();
-        if (chat) OpenChat();
     }
 
     /// <summary>The list refreshed: show their new status without starting over.</summary>
@@ -149,12 +130,11 @@ internal sealed class SteamFriendPage
         _friend = friend;
         BuildHeader();
         BuildActions();
-        if (gameChanged && !_chatOpen) _ = BackdropForAsync(friend.GameId > 0 ? friend.GameId : _focusedGame?.AppId, _token);
+        if (gameChanged) _ = BackdropForAsync(friend.GameId > 0 ? friend.GameId : _focusedGame?.AppId, _token);
     }
 
     public void Close()
     {
-        if (_chatOpen) CloseChat(focus: false);
         _friend = null;
         Pause();
         _games.Clear();
@@ -163,7 +143,6 @@ internal sealed class SteamFriendPage
 
     public void Pause()
     {
-        _chat?.Hide(); // stays as it was for a few minutes, then closes to free its memory
         _cancel.Cancel();
         _token++;
         BackdropChanged?.Invoke(null);
@@ -180,33 +159,17 @@ internal sealed class SteamFriendPage
         _ = LoadAvatarAsync(friend, token);
         _ = LoadAsync(friend, token);
         if (friend.GameId > 0) _ = BackdropForAsync(friend.GameId, token);
-        if (_chatOpen)
-        {
-            if (_chat is { IsOpen: true }) ShowChat();
-            else OpenChat(); // it was closed to free memory while you were away
-        }
     }
 
     public void Focus()
     {
-        if (_chatOpen) _chat?.Show();
-        else if (_games.Count > 0) _games.Focus(_focusedGame is null ? 0 : Math.Max(0, _recent.IndexOf(_focusedGame)));
+        if (_games.Count > 0) _games.Focus(_focusedGame is null ? 0 : Math.Max(0, _recent.IndexOf(_focusedGame)));
         else Keyboard.ClearFocus();
     }
 
     public bool Handle(NavCommand command, IInputElement? focused)
     {
         if (_friend is not { } friend) return false;
-        if (_chatOpen && _chat is not null)
-        {
-            // Game invites aren't in Steam's web chat: X opens this chat in the Steam app, which has Invite to Game.
-            if (command == NavCommand.Secondary)
-            {
-                OpenLink?.Invoke(SteamFriends.ClientChatLink(friend.SteamId), true);
-                return true;
-            }
-            return _chat.Handle(command, focused); // B goes back in the chat, then closes it
-        }
         switch (command)
         {
             case NavCommand.Back:
@@ -216,7 +179,7 @@ internal sealed class SteamFriendPage
                 if (_focusedGame is { } game && _games.Contains(focused)) PlayOrOpen(game);
                 return true;
             case NavCommand.Secondary:
-                OpenChat();
+                OpenLink?.Invoke(SteamFriends.ClientChatLink(friend.SteamId), true);
                 return true;
             case NavCommand.Mute:
                 if (friend.JoinLink is { } join) OpenLink?.Invoke(join, false);
@@ -228,88 +191,6 @@ internal sealed class SteamFriendPage
         return false;
     }
 
-    // ---- Chat -------------------------------------------------------------------------------
-
-    /// <summary>
-    /// Steam web chat under their name, opened on your conversation with them. It is Valve's own page: you sign in
-    /// there, and the overlay only clicks and types what you choose with the controller.
-    /// </summary>
-    private void OpenChat()
-    {
-        if (_friend is not { } friend) return;
-        if (_chat is null)
-        {
-            _chat = new SteamBrowser(_resources) { ShowHeader = false, SecondaryLabel = "invite in Steam" };
-            _chat.Closed += () => CloseChat();
-            _chat.OpenLink += link => OpenLink?.Invoke(link, false);
-            _chat.HintChanged += () => HintChanged?.Invoke();
-            _chatHost.Child = _chat.View;
-        }
-        _chatOpen = true;
-        ShowChat();
-        _chat.Open(SteamFriends.WebChat, "Steam chat", friend.Name);
-    }
-
-    private void ShowChat()
-    {
-        if (_chat is null) return;
-        Compact(true);
-        _chatHost.Visibility = Visibility.Visible;
-        _chat.Show();
-        FitChat();
-        // The page's own layout settles first; then the chat takes the rest of the screen.
-        _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FitChat);
-        HintChanged?.Invoke();
-    }
-
-    private void CloseChat(bool focus = true)
-    {
-        _chatOpen = false;
-        _chat?.Hide();
-        _chatHost.Visibility = Visibility.Collapsed;
-        Compact(false);
-        if (focus) Focus();
-        HintChanged?.Invoke();
-    }
-
-    /// <summary>While you chat, their name and picture shrink to a header so the conversation gets the room.</summary>
-    private void Compact(bool chat)
-    {
-        double avatar = chat ? 72 : AvatarSize;
-        _avatar.Width = _avatar.Height = avatar;
-        _avatar.CornerRadius = new CornerRadius(chat ? 20 : 30);
-        _initial.FontSize = chat ? 30 : 54;
-        _name.FontSize = chat ? 32 : 52;
-        _text.Margin = new Thickness(chat ? 20 : 28, 0, 0, 0);
-        _facts.Visibility = chat || _facts.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        var rest = chat ? Visibility.Collapsed : Visibility.Visible;
-        _actions.Visibility = rest;
-        bool games = !chat && _games.Count > 0;
-        _gamesLabel.Visibility = _games.View.Visibility = _gameInfo.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
-        _note.Visibility = !chat && _note.Text.Length > 0 && _games.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>The web page can't scroll with the overlay's page, so it fills the space left under the header.</summary>
-    private void FitChat()
-    {
-        if (!_chatOpen || _chat is null || !_chatHost.IsVisible) return;
-        DependencyObject? node = _root;
-        while (node is not null && node is not ScrollViewer)
-            node = VisualTreeHelper.GetParent(node);
-        if (node is ScrollViewer scroller && scroller.ViewportHeight > 0 && scroller.Content is Visual content)
-        {
-            try
-            {
-                double top = _chatHost.TransformToAncestor(content).Transform(new Point(0, 0)).Y;
-                _chat.SetHeight(scroller.ViewportHeight - top - 20);
-                scroller.ScrollToTop();
-                return;
-            }
-            catch (InvalidOperationException) { } // not laid out yet
-        }
-        _chat.SetHeight(520);
-    }
-
     // ---- Loading ----------------------------------------------------------------------------
 
     private async Task LoadAsync(SteamFriend friend, int token)
@@ -318,7 +199,7 @@ internal sealed class SteamFriendPage
         if (key.Length == 0)
         {
             _note.Text = "Add your Steam Web API key in Settings › Steam to see what they play, their level and when you became friends.";
-            _note.Visibility = _chatOpen ? Visibility.Collapsed : Visibility.Visible;
+            _note.Visibility = Visibility.Visible;
             return;
         }
         var cancel = _cancel.Token;
@@ -336,7 +217,7 @@ internal sealed class SteamFriendPage
             if (_recent.Count == 0)
             {
                 _note.Text = "They haven't played anything in the last two weeks, or their game details are private.";
-                _note.Visibility = _chatOpen ? Visibility.Collapsed : Visibility.Visible;
+                _note.Visibility = Visibility.Visible;
             }
             if (_root.IsVisible && _games.Count > 0) Focus();
             HintChanged?.Invoke();
@@ -398,7 +279,7 @@ internal sealed class SteamFriendPage
             try { facts.Add(new RegionInfo(country).DisplayName); } catch { }
         }
         _facts.Text = string.Join("  ·  ", facts);
-        _facts.Visibility = facts.Count > 0 && !_chatOpen ? Visibility.Visible : Visibility.Collapsed;
+        _facts.Visibility = facts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void BuildActions()
@@ -410,7 +291,8 @@ internal sealed class SteamFriendPage
             var (_, installed) = Ownership(game.AppId);
             _actions.Children.Add(Ui.ActionPill(_resources, "A", installed ? "Play " + Short(game.Name) : "Game page", primary: true, () => PlayOrOpen(game)));
         }
-        _actions.Children.Add(Ui.ActionPill(_resources, "X", "Chat", primary: _games.Count == 0, OpenChat));
+        _actions.Children.Add(Ui.ActionPill(_resources, "X", "Chat and invite in Steam", primary: _games.Count == 0,
+            () => OpenLink?.Invoke(SteamFriends.ClientChatLink(f.SteamId), true)));
         if (f.JoinLink is { } join)
             _actions.Children.Add(Ui.ActionPill(_resources, "Y", "Join their game", primary: false, () => OpenLink?.Invoke(join, false)));
         else
@@ -431,7 +313,6 @@ internal sealed class SteamFriendPage
         {
             _focusedGame = null;
             BuildActions();
-            if (_chatOpen) Compact(true);
             return;
         }
 
@@ -484,7 +365,6 @@ internal sealed class SteamFriendPage
         _focusedGame = _recent.FirstOrDefault(g => g.AppId == keep) ?? _recent[0];
         ShowGameInfo(_focusedGame);
         BuildActions();
-        if (_chatOpen) Compact(true);
     }
 
     private void ShowGameInfo(RecentGame game)

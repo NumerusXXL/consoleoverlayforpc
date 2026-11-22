@@ -211,7 +211,6 @@ public partial class OverlayWindow : Window
 
         _settings = new SettingsPage(this);
         _settings.CloseThen += action => CloseThenRequested?.Invoke(action);
-        _settings.SignOutOfSteamChat = () => _steam.SignOutOfChatAsync();
         _settingsPage = AddPage("Settings", "\uE713", _settings);
     }
 

@@ -709,25 +709,12 @@ internal sealed class SettingsPage : IOverlayPage
         Row("steam-key-page", "Get a Web API key", "Opens steamcommunity.com/dev/apikey in your browser. Any domain name works, like localhost.",
             () => "", () => OpenUrl(Steam.SteamFriends.ApiKeyPage));
 
-        Header("Chat", first: false);
-        Note("Chat on a friend's page is Steam's own web chat. You sign in on Steam's sign-in page (the QR code works with "
-            + "the Steam phone app); Console Overlay never sees your password and only types what you type.");
-        Row("steam-signout", "Sign out of Steam chat in the overlay", "Forgets the chat's sign-in. The Steam app stays signed in.", null, async () =>
-        {
-            if (SignOutOfSteamChat is null) return;
-            bool done = await SignOutOfSteamChat();
-            ShowMessage(done ? "Signed out of Steam chat in the overlay." : "Couldn't sign out yet. Try again in a moment.", error: !done);
-        });
-
-        Header("Buying and invites", first: false);
-        Note("Steam has no way for other apps to buy games or send game invites, so those open in the Steam app, signed in "
-            + "as you.");
-        Toggle("steam-bigpicture", "Open them in Big Picture", "Steam's controller-friendly mode, so buying and invites work with the controller too",
+        Header("Buying and chat", first: false);
+        Note("Steam has no way for other apps to buy games, send chat messages or game invites, so those open in the Steam "
+            + "app, signed in as you. Nothing logs in to your account from Console Overlay.");
+        Toggle("steam-bigpicture", "Open them in Big Picture", "Steam's controller-friendly mode, so buying and chat work with the controller too",
             () => Settings.SteamBigPicture, on => Settings.SteamBigPicture = on);
     }
-
-    /// <summary>Signs out of Steam in the overlay's chat (set by the overlay).</summary>
-    public Func<System.Threading.Tasks.Task<bool>>? SignOutOfSteamChat { get; set; }
 
     private void EditField(string field)
     {

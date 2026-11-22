@@ -166,7 +166,7 @@ internal sealed class SteamFriendsView
                 if (_steamFolder is not null && !HasKey) OpenSettings?.Invoke();
                 return true;
             case NavCommand.Secondary:
-                if (friend is not null) OpenPage(friend, chat: true);
+                if (friend is not null) OpenLink?.Invoke(SteamFriends.ClientChatLink(friend.SteamId), true);
                 return true;
             case NavCommand.Mute:
                 if (!HasKey) OpenSettings?.Invoke();
@@ -337,7 +337,8 @@ internal sealed class SteamFriendsView
 
         _actions.Children.Clear();
         _actions.Children.Add(Ui.ActionPill(_resources, "A", "View", primary: true, () => OpenPage(friend)));
-        _actions.Children.Add(Ui.ActionPill(_resources, "X", "Chat", primary: false, () => OpenPage(friend, chat: true)));
+        _actions.Children.Add(Ui.ActionPill(_resources, "X", "Chat and invite in Steam", primary: false,
+            () => OpenLink?.Invoke(SteamFriends.ClientChatLink(friend.SteamId), true)));
         if (!HasKey)
             _actions.Children.Add(Ui.ActionPill(_resources, "Y", "Show who's online", primary: false, () => OpenSettings?.Invoke()));
         else if (friend.JoinLink is { } join)
@@ -356,13 +357,10 @@ internal sealed class SteamFriendsView
         return (friend.LastOnline is { } last ? "Offline · last online " + Ago(last) : "Offline", OfflineBrush);
     }
 
-    /// <summary>Signs out of Steam in the overlay's chat (Settings › Steam).</summary>
-    public System.Threading.Tasks.Task<bool> SignOutOfChatAsync() => _page.SignOutOfChatAsync();
-
-    private void OpenPage(SteamFriend friend, bool chat = false)
+    private void OpenPage(SteamFriend friend)
     {
         _list.Visibility = Visibility.Collapsed;
-        _page.Open(friend, chat);
+        _page.Open(friend);
         _page.Focus();
         HintChanged?.Invoke();
     }

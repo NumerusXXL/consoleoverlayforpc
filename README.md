@@ -70,22 +70,12 @@ A opens the game's page: its screenshot fills the background, with the title, pr
 | On a friend | Controller | Keyboard |
 |---|---|---|
 | Their page | A | Enter |
-| Chat with them, right on their page | X | X |
+| Chat with them and invite them to your game, in Steam | X | X |
 | Join their game (when Steam allows joining it), otherwise their profile in Steam | Y | Y |
-
-**Chat** opens under their name on their page, so you don't leave the overlay. It is Valve's own Steam web chat (steamcommunity.com/chat), shown inside the overlay with Microsoft Edge WebView2 (built into Windows 11 and up-to-date Windows 10). The first time, you sign in on Steam's own sign-in page; the QR code works with the Steam phone app. The overlay never sees your password, and it only clicks and types what you choose. Settings › Steam signs the chat out again.
-
-| In the chat | Controller | Keyboard |
-|---|---|---|
-| Move the white ring / click | D-pad / A | Mouse, or type directly |
-| On-screen keyboard (EN / RU; X deletes, Y space, RT sends) | Y | |
-| Scroll the conversation | LT / RT | |
-| Invite them to your game (in the Steam app's chat, which has Invite to Game) | X | |
-| Back / close the chat | B | |
 
 The friends list comes from the Steam app on your PC. To see who is online, what they play, their level and your game list, add your own **Steam Web API key** in Settings › Steam (get one free at [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey); any domain name works, like `localhost`). It stays on your PC and is only sent to Steam.
 
-**What has to happen in Steam itself.** Valve offers no public way for another app to buy games or send game invites, and Steam's web chat has no game invites. The only other ways would be unofficial clients that log in as you, which can get an account restricted, so Console Overlay doesn't do that. Buying and invites open in the Steam app (in **Big Picture**, Steam's controller mode, by default; Settings › Steam turns that off), on the right game or friend. Everything else on the Store and Friends views is drawn by the overlay from Steam's public store data and official Web API, and never logs in to your account; the chat is Steam's own page, which you sign in to yourself.
+**What has to happen in Steam itself.** Valve offers no public way for another app to buy games, send chat messages or send game invites. The only ways would be unofficial clients that log in as you, which can get an account restricted, so Console Overlay doesn't do that. Buying, chat and invites open in the Steam app (in **Big Picture**, Steam's controller mode, by default; Settings › Steam turns that off), on the right game or friend. Everything else on the Store and Friends views is drawn by the overlay from Steam's public store data and official Web API, and never logs in to your account.
 
 On the **Shortcuts** page, your own apps, games and links sit as tiles. A launches one (the overlay closes first), X removes it (press twice). The **Add** tile adds an app or game from the Start menu (Steam, Epic and other launchers put their games there; type to search, or LT / RT to jump between letters), a link like `youtube.com` or `steam://`, or any file you browse to.
 
@@ -144,7 +134,7 @@ The **Settings** page in the overlay has a list of sections on the left. Moving 
 - **Games**: what to do with exclusive fullscreen games, and which games to skip. Open the overlay over a game and it offers to skip that one.
 - **Capture**: who makes clips and recordings (NVIDIA app or Xbox Game Bar), and where screenshots go.
 - **Performance**: stats in the corner on or off and which corner, and permission to count frames.
-- **Steam**: your Steam Web API key (for who is online on Friends; type it, or X to paste), a link to get one, signing the overlay's Steam chat out, and whether buying and invites open in Big Picture.
+- **Steam**: your Steam Web API key (for who is online on Friends; type it, or X to paste), a link to get one, and whether buying and chat open in Big Picture.
 - **Discord**: enter your Discord app's Client ID and Client Secret (type them, or X to paste from the clipboard), open the setup guide, sign out.
 - **About**: version, check for updates, open the log, quit.
 
