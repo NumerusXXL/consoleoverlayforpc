@@ -30,6 +30,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.16" />
+    <!-- Microsoft Edge WebView2: Steam web chat on a friend's page. Uses the WebView2 Runtime
+         that comes with Windows 11 and Edge on Windows 10. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3856.49" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
     <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="8.0.1" />
     <!-- Encrypts the saved Discord sign-in so only this Windows user can read it. -->

@@ -172,6 +172,9 @@ internal sealed class SteamPage : IOverlayPage
         _ => _steamFolder is null ? null : _loaded ? $"Library · {_games.Count} installed" : "Library",
     };
 
+    /// <summary>Signs out of Steam in the overlay's chat (Settings › Steam).</summary>
+    public System.Threading.Tasks.Task<bool> SignOutOfChatAsync() => _friends.SignOutOfChatAsync();
+
     /// <summary>The Web API key for friends' online status lives in the settings.</summary>
     public void SetHost(ConsoleOverlay.Settings.ISettingsHost host) => _host = host;
 
