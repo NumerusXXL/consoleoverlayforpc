@@ -19,7 +19,8 @@ internal static class WebImages
     private static readonly Dictionary<string, BitmapSource> Cache = [];
     private static readonly LinkedList<string> Order = new();
 
-    public static async Task<BitmapSource?> LoadAsync(string url, int decodeWidth, CancellationToken cancel)
+    /// <param name="cache">False for big pictures (backgrounds), which would take too much memory to keep.</param>
+    public static async Task<BitmapSource?> LoadAsync(string url, int decodeWidth, CancellationToken cancel, bool cache = true)
     {
         string key = url + "|" + decodeWidth;
         lock (Cache)
@@ -40,6 +41,7 @@ internal static class WebImages
                 bitmap.Freeze();
                 return (BitmapSource)bitmap;
             }, cancel);
+            if (!cache) return image;
             lock (Cache)
             {
                 Cache[key] = image;

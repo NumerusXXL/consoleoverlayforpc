@@ -698,9 +698,6 @@ internal sealed class SettingsPage : IOverlayPage
 
     // ---- Steam ------------------------------------------------------------------------------
 
-    /// <summary>Signs out of Steam in the overlay's store and chat (set by the overlay).</summary>
-    public Func<System.Threading.Tasks.Task<bool>>? SignOutOfSteamBrowser { get; set; }
-
     private void BuildSteam()
     {
         Header("Friends", first: true);
@@ -712,16 +709,11 @@ internal sealed class SettingsPage : IOverlayPage
         Row("steam-key-page", "Get a Web API key", "Opens steamcommunity.com/dev/apikey in your browser. Any domain name works, like localhost.",
             () => "", () => OpenUrl(Steam.SteamFriends.ApiKeyPage));
 
-        Header("Store and chat", first: false);
-        Note("The store, checkout and chat are Steam's own pages, opened inside the overlay. You sign in on Steam's sign-in "
-            + "page (the QR code works with the Steam phone app) and pay on Steam's checkout; Console Overlay never sees "
-            + "your password or payment details.");
-        Row("steam-signout", "Sign out of Steam in the overlay", "Forgets the sign-in of the overlay's store and chat. The Steam app stays signed in.", null, async () =>
-        {
-            if (SignOutOfSteamBrowser is null) return;
-            bool done = await SignOutOfSteamBrowser();
-            ShowMessage(done ? "Signed out of Steam in the overlay." : "Couldn't sign out yet. Try again in a moment.", error: !done);
-        });
+        Header("Buying and chat", first: false);
+        Note("Steam has no way for other apps to buy games, send chat messages or game invites, so those open in the Steam "
+            + "app, signed in as you. Nothing logs in to your account from Console Overlay.");
+        Toggle("steam-bigpicture", "Open them in Big Picture", "Steam's controller-friendly mode, so buying and chat work with the controller too",
+            () => Settings.SteamBigPicture, on => Settings.SteamBigPicture = on);
     }
 
     private void EditField(string field)

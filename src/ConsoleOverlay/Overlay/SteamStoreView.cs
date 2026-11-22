@@ -15,8 +15,8 @@ namespace ConsoleOverlay.Overlay;
 
 /// <summary>
 /// The Store view on the Steam page: the store's front page shelves (Specials, Top sellers, New releases, Coming soon)
-/// and search, as big game tiles. Up / down changes shelf. A opens the game's store page in the overlay, where you buy
-/// it on Steam's own checkout; X opens it in the Steam app instead; Y searches with the on-screen keyboard.
+/// your wishlist and search, as big game tiles. Up / down changes shelf. A opens the game's page, drawn by the overlay
+/// (<see cref="SteamGamePage"/>); X opens it in the Steam app; Y searches with the on-screen keyboard.
 /// </summary>
 internal sealed class SteamStoreView
 {
@@ -58,11 +58,21 @@ internal sealed class SteamStoreView
     private CancellationTokenSource _cancel = new();
     private int _artToken;
 
-    /// <summary>Open a page in the overlay's browser: url, title.</summary>
-    public event Action<string, string>? OpenPage;
+    /// <summary>Open a game's page.</summary>
+    public event Action<StoreItem>? OpenGame;
 
-    /// <summary>Close the overlay and open a steam:// link.</summary>
-    public event Action<string>? OpenLink;
+    /// <summary>Close the overlay and open a steam:// link; true: in Big Picture.</summary>
+    public event Action<string, bool>? OpenLink;
+
+    /// <summary>Your account id, for the wishlist shelf (null: not signed in to Steam on this PC).</summary>
+    public Func<string?> SteamId { get; set; } = () => null;
+
+    /// <summary>Is the game yours, and is it installed?</summary>
+    public Func<int, (bool Owned, bool Installed)> Ownership { get; set; } = _ => (false, false);
+
+    private const string WishlistShelf = "wishlist";
+    private List<StoreItem> _wishlist = [];
+    private DateTime _wishlistAt;
 
     public event Action? HintChanged;
 
@@ -173,7 +183,7 @@ internal sealed class SteamStoreView
             case NavCommand.Up: SwitchShelf(-1); return true;
             case NavCommand.Down: SwitchShelf(1); return true;
             case NavCommand.Secondary:
-                if (_focused is { } item) OpenLink?.Invoke(SteamStore.ClientStoreLink(item.AppId));
+                if (_focused is { } item) OpenLink?.Invoke(SteamStore.ClientStoreLink(item.AppId), true);
                 return true;
             case NavCommand.Mute: StartSearching(); return true;
             case NavCommand.Back:
@@ -208,6 +218,7 @@ internal sealed class SteamStoreView
             _shelves = shelves;
             _error = null;
             if (changed) Rebuild();
+            _ = LoadWishlistAsync();
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -215,7 +226,29 @@ internal sealed class SteamStoreView
             Log.Write($"Steam store: could not load the front page: {ex.Message}");
             if (!_active) return;
             _error = "The store didn't load";
-            if (_shown.Count == 0) ShowMessage(_error, "Check your internet connection. Press A to try the store page itself.");
+            if (_shown.Count == 0) ShowMessage(_error, "Check your internet connection, then press A to try again.");
+        }
+    }
+
+    /// <summary>Your wishlist as a shelf, when your profile's game details are public.</summary>
+    private async Task LoadWishlistAsync()
+    {
+        if (SteamId() is not { } steamId || DateTime.Now - _wishlistAt < TimeSpan.FromMinutes(10)) return;
+        var cancel = _cancel.Token;
+        try
+        {
+            var wishlist = await SteamStore.WishlistAsync(steamId, cancel);
+            if (cancel.IsCancellationRequested || !_active) return;
+            _wishlistAt = DateTime.Now;
+            bool had = _wishlist.Count > 0;
+            _wishlist = wishlist;
+            if (had != (wishlist.Count > 0)) BuildShelfTabs();
+            if (_current == WishlistShelf) Rebuild();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Write($"Steam store: no wishlist: {ex.Message}");
         }
     }
 
@@ -266,6 +299,7 @@ internal sealed class SteamStoreView
     private IEnumerable<(string Id, string Name)> ShelvesInOrder()
     {
         foreach (var shelf in SteamStore.Shelves) yield return shelf;
+        if (_wishlist.Count > 0) yield return (WishlistShelf, "Wishlist");
         if (_resultsFor is not null) yield return (SearchShelf, $"“{_resultsFor}”");
     }
 
@@ -312,7 +346,8 @@ internal sealed class SteamStoreView
         int? keepAppId = _focused?.AppId;
         _shelf.Clear();
         _artToken++;
-        _shown = _current == SearchShelf ? _results : _shelves.TryGetValue(_current, out var list) ? list : [];
+        _shown = _current == SearchShelf ? _results : _current == WishlistShelf ? _wishlist
+            : _shelves.TryGetValue(_current, out var list) ? list : [];
         if (_shown.Count == 0)
         {
             if (_current == SearchShelf) ShowMessage("Nothing found", "Press Y to search for something else.");
@@ -331,7 +366,7 @@ internal sealed class SteamStoreView
                 _detailsDelay.Stop();
                 _detailsDelay.Start();
                 RequestArt(index);
-            }, () => OpenPage?.Invoke(SteamStore.StoreLink(current.AppId), current.Name));
+            }, () => OpenGame?.Invoke(current));
         }
         int start = keepAppId is { } id ? Math.Max(0, _shown.FindIndex(i => i.AppId == id)) : 0;
         if (start == 0) _shelf.Rise();
@@ -361,7 +396,10 @@ internal sealed class SteamStoreView
             },
         });
         layers.Children.Add(new Border { CornerRadius = new CornerRadius(20) }); // the art, once downloaded
-        if (item.DiscountPercent > 0)
+        var (owned, installed) = Ownership(item.AppId);
+        if (owned)
+            layers.Children.Add(Badge(installed ? "Installed" : "In library", new Thickness(10), HorizontalAlignment.Left, VerticalAlignment.Top));
+        else if (item.DiscountPercent > 0)
             layers.Children.Add(Badge($"−{item.DiscountPercent}%", new Thickness(10), HorizontalAlignment.Left, VerticalAlignment.Top));
         return layers;
     }
@@ -383,10 +421,12 @@ internal sealed class SteamStoreView
         _title.Text = details?.Name is { Length: > 0 } name ? name : item.Name;
 
         _meta.Children.Clear();
-        int discount = details?.DiscountPercent ?? item.DiscountPercent;
-        string? price = details is null ? SteamStore.FormatPrice(item.FinalPrice, item.Currency)
+        var (owned, installed) = Ownership(item.AppId);
+        int discount = owned ? 0 : details?.DiscountPercent ?? item.DiscountPercent;
+        string? price = owned ? (installed ? "Installed" : "In your library")
+            : details is null ? SteamStore.FormatPrice(item)
             : details.IsFree ? "Free to play" : details.Price;
-        string? original = details is null ? (item.DiscountPercent > 0 ? SteamStore.FormatPrice(item.OriginalPrice, item.Currency) : null)
+        string? original = owned ? null : details is null ? (item.DiscountPercent > 0 ? SteamStore.FormatPrice(item, original: true) : null)
             : details.OriginalPrice;
         if (discount > 0)
         {
@@ -420,10 +460,9 @@ internal sealed class SteamStoreView
         _description.Visibility = _description.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         _actions.Children.Clear();
-        _actions.Children.Add(Ui.ActionPill(_resources, "A", details?.IsFree == true ? "View and play" : "View and buy", primary: true,
-            () => OpenPage?.Invoke(SteamStore.StoreLink(item.AppId), item.Name)));
+        _actions.Children.Add(Ui.ActionPill(_resources, "A", "Game page", primary: true, () => OpenGame?.Invoke(item)));
         _actions.Children.Add(Ui.ActionPill(_resources, "X", "Open in Steam", primary: false,
-            () => OpenLink?.Invoke(SteamStore.ClientStoreLink(item.AppId))));
+            () => OpenLink?.Invoke(SteamStore.ClientStoreLink(item.AppId), true)));
         _actions.Children.Add(Ui.ActionPill(_resources, "Y", "Search", primary: false, StartSearching));
     }
 
@@ -448,17 +487,24 @@ internal sealed class SteamStoreView
         _description.Text = detail ?? "";
         _description.Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
         _actions.Children.Clear();
-        _actions.Children.Add(Ui.ActionPill(_resources, "A", "Open the store page", primary: true,
-            () => OpenPage?.Invoke(SteamStore.StoreHome, "Steam Store")));
+        _actions.Children.Add(Ui.ActionPill(_resources, "A", "Try again", primary: true, () => _ = LoadAsync()));
         _actions.Children.Add(Ui.ActionPill(_resources, "Y", "Search", primary: false, StartSearching));
     }
 
-    /// <summary>A on an empty shelf opens the store's own front page.</summary>
+    /// <summary>A on an empty shelf loads the store again.</summary>
     public bool AcceptWithoutTiles()
     {
         if (_searching || _shelf.Count > 0) return false;
-        OpenPage?.Invoke(SteamStore.StoreHome, "Steam Store");
+        _ = LoadAsync();
         return true;
+    }
+
+    /// <summary>Puts focus back on the game you were on (coming back from its page).</summary>
+    public void FocusCurrent()
+    {
+        if (_searching) { _keyboard.FocusFirst(); return; }
+        int index = _focused is null ? 0 : Math.Max(0, _shown.IndexOf(_focused));
+        _shelf.Focus(index);
     }
 
     // ---- Search -----------------------------------------------------------------------------
