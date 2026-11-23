@@ -13,19 +13,20 @@ namespace ConsoleOverlay.Overlay;
 /// The Steam app's own chat window, placed inside the overlay on a friend's page.
 ///
 /// This only uses ordinary Windows window management: the chat is opened with the official steam://friends/message
-/// link, then its window is moved and sized into the frame on the page and kept above the overlay. While it is there it
-/// is locked in: its frame and title bar are turned off and cut away (a rounded window region the size of the frame),
-/// and if it moves, resizes or minimizes anyway (Win+arrow keys, a drag) it is put straight back. Typing and clicks are ordinary keyboard and mouse input (like Windows' touch keyboard). Nothing is
-/// injected into Steam and nothing reads Steam's memory, so it is as safe for the account as using the chat window
-/// by hand. When you leave, the window goes back where it was (or closes, if the overlay opened it).
+/// link, then its window is made a child window of a frame on the page (<see cref="ChatHost"/>), the way apps embed
+/// another app's window. As a child it has no frame, shadow or border of its own, moves with the page, and is clipped
+/// to the frame's rounded shape; Steam's title bar and tab row sit above the frame's top edge, cut off. If it moves or
+/// resizes anyway it is put straight back. Typing and clicks are ordinary keyboard and mouse input (like Windows' touch
+/// keyboard). Nothing is injected into Steam and nothing reads Steam's memory, so it is as safe for the account as
+/// using the chat window by hand. When you leave, the window gets its own frame and place back (or closes, if the
+/// overlay opened it).
 /// </summary>
 internal sealed class SteamChatWindow
 {
     private readonly bool _openedByUs;
     private readonly bool _wasTopmost;
     private Native.WINDOWPLACEMENT _placement;
-    private Native.RECT _placed;
-    private int _radius;
+    private IntPtr _container;
     private bool _released;
     private readonly long _style;
     private readonly List<IntPtr> _hooks = [];
@@ -155,38 +156,36 @@ internal sealed class SteamChatWindow
         return new SteamChatWindow(w.Hwnd, openedByUs);
     }
 
-    /// <summary>Puts the window into <paramref name="rect"/> (screen pixels), above the overlay, and gives it focus.</summary>
-    public void Attach(Native.RECT rect, int radius)
+    /// <summary>Makes the window a child of <paramref name="container"/> (the frame on the page) and gives it focus.</summary>
+    public void Attach(IntPtr container)
     {
         Active = this;
         EndOpening();
+        _container = container;
         if (Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
-        // No frame, title bar or window buttons while it is on the page: nothing to grab, resize or maximize.
-        long locked = _style & ~(Native.WS_CAPTION | Native.WS_THICKFRAME | Native.WS_SYSMENU | Native.WS_MINIMIZEBOX | Native.WS_MAXIMIZEBOX);
-        if (locked != _style) Native.SetWindowLongPtr(Hwnd, Native.GWL_STYLE, new IntPtr(locked));
-        Place(rect, radius);
+        // A child window: no frame, title bar or window buttons, nothing to grab, resize or maximize.
+        long child = (_style & ~(Native.WS_POPUP | Native.WS_CAPTION | Native.WS_THICKFRAME | Native.WS_SYSMENU
+            | Native.WS_MINIMIZEBOX | Native.WS_MAXIMIZEBOX)) | Native.WS_CHILD;
+        Native.SetWindowLongPtr(Hwnd, Native.GWL_STYLE, new IntPtr(child));
+        Native.SetParent(Hwnd, container);
+        Fit();
         Lock();
         Focus();
     }
 
     /// <summary>
-    /// Moves and sizes it into <paramref name="rect"/> (screen pixels): the window starts a title strip higher, and a
-    /// rounded region cuts it to exactly the frame, so only the conversation shows, with the page's rounded corners.
+    /// Fills the frame: the window starts Steam's title strip above the frame's top edge (cut off there), and reaches a
+    /// little past its right and bottom edges so Steam's resize grip is cut off too.
     /// </summary>
-    public void Place(Native.RECT rect, int radius)
+    public void Fit()
     {
-        if (!Alive) return;
-        _placed = rect;
-        _radius = radius;
+        if (!Alive || _container == IntPtr.Zero || !Native.GetClientRect(_container, out var area)) return;
         int strip = TitleStrip, grip = GripMargin;
         _snapping = true;
         try
         {
-            Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, rect.Left, rect.Top - strip, rect.Width + grip, rect.Height + strip + grip,
-                Native.SWP_SHOWWINDOW | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER | Native.SWP_FRAMECHANGED);
-            // The region is in window coordinates; Windows owns it after this call.
-            var region = Native.CreateRoundRectRgn(0, strip, rect.Width + 1, strip + rect.Height + 1, radius * 2, radius * 2);
-            if (region != IntPtr.Zero && Native.SetWindowRgn(Hwnd, region, true) == 0) Native.DeleteObject(region);
+            Native.SetWindowPos(Hwnd, IntPtr.Zero, 0, -strip, area.Width + grip, area.Height + strip + grip,
+                Native.SWP_SHOWWINDOW | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER | Native.SWP_FRAMECHANGED);
             Native.GetWindowRect(Hwnd, out _expected);
         }
         finally
@@ -228,7 +227,7 @@ internal sealed class SteamChatWindow
                     Native.PostMessage(Hwnd, Native.WM_CANCELMODE, IntPtr.Zero, IntPtr.Zero); // ends the drag
                     break;
                 case Native.EVENT_SYSTEM_MINIMIZESTART:
-                    Native.ShowWindow(Hwnd, Native.SW_RESTORE);
+                    Native.ShowWindow(Hwnd, Native.SW_SHOWNORMAL);
                     SnapBack();
                     break;
                 case Native.EVENT_OBJECT_LOCATIONCHANGE:
@@ -256,39 +255,21 @@ internal sealed class SteamChatWindow
         }
         // After the event, not inside it, so a burst of moves ends with the window where it belongs.
         System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
-            System.Windows.Threading.DispatcherPriority.Input, () => { if (!_released) Place(_placed, _radius); });
+            System.Windows.Threading.DispatcherPriority.Input, () => { if (!_released) Fit(); });
     }
 
-    /// <summary>Keeps it above the overlay after the overlay took focus (for its on-screen keyboard).</summary>
-    public void Raise()
-    {
-        if (!Alive) return;
-        Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
-    }
-
-    /// <summary>Gives it keyboard focus, so typing (and the overlay's keyboard) goes into the chat.</summary>
+    /// <summary>
+    /// Gives it keyboard focus, so typing (and the overlay's keyboard) goes into the chat. The overlay stays the window
+    /// in front; Steam's window is inside it.
+    /// </summary>
     public bool Focus()
     {
         if (!Alive) return false;
-        if (Native.GetForegroundWindow() == Hwnd) return true;
-        uint ourThread = Native.GetCurrentThreadId();
-        uint theirThread = Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out _);
-        bool attach = theirThread != 0 && theirThread != ourThread;
-        if (attach) Native.AttachThreadInput(ourThread, theirThread, true);
-        try
-        {
-            Native.BringWindowToTop(Hwnd);
-            Native.SetForegroundWindow(Hwnd);
-        }
-        finally
-        {
-            if (attach) Native.AttachThreadInput(ourThread, theirThread, false);
-        }
-        return Native.GetForegroundWindow() == Hwnd;
+        Native.SetFocus(Hwnd); // works across the two apps because a child window shares input with its parent
+        return Native.GetFocus() == Hwnd || Native.GetFocus() != IntPtr.Zero;
     }
 
-    public bool HasFocus => Native.GetForegroundWindow() == Hwnd;
+    public bool HasFocus => Native.GetFocus() == Hwnd;
 
     /// <summary>
     /// The window, or one of Steam's own pop-ups for it (a right-click menu, the emoji picker): they belong to the same
@@ -303,10 +284,18 @@ internal sealed class SteamChatWindow
         return ours != 0 && ours == theirs;
     }
 
-    /// <summary>The middle of the conversation, in screen pixels (where the pointer starts, and scrolling happens).</summary>
-    public Native.POINT Middle => new() { X = _placed.Left + _placed.Width / 2, Y = _placed.Top + _placed.Height / 2 };
+    /// <summary>The visible part on screen, in pixels: the frame.</summary>
+    public Native.RECT Bounds => Native.GetWindowRect(_container, out var r) ? r : default;
 
-    public Native.RECT Bounds => _placed;
+    /// <summary>The middle of the conversation, in screen pixels (where the pointer starts, and scrolling happens).</summary>
+    public Native.POINT Middle
+    {
+        get
+        {
+            var b = Bounds;
+            return new Native.POINT { X = b.Left + b.Width / 2, Y = b.Top + b.Height / 2 };
+        }
+    }
 
     /// <summary>Gives the window back: where it was before, not above other windows; closed if the overlay opened it.</summary>
     public void Release()
@@ -316,9 +305,10 @@ internal sealed class SteamChatWindow
         Unlock();
         if (_released || !Native.IsWindow(Hwnd)) return;
         _released = true;
-        // Its own frame, title bar and shape again.
-        Native.SetWindowRgn(Hwnd, IntPtr.Zero, true);
+        // A window of its own again, with its own frame and title bar.
+        Native.SetParent(Hwnd, IntPtr.Zero);
         Native.SetWindowLongPtr(Hwnd, Native.GWL_STYLE, new IntPtr(_style));
+        _container = IntPtr.Zero;
         Native.SetWindowPos(Hwnd, IntPtr.Zero, 0, 0, 0, 0,
             Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER | Native.SWP_FRAMECHANGED | 0x0004 /* NOZORDER */);
         if (!_wasTopmost)

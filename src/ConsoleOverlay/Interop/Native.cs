@@ -323,4 +323,30 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    // ---- Embedding the Steam chat window as a child of the overlay -----------------------
+
+    public const long WS_CHILD = 0x40000000;
+    public const long WS_POPUP = 0x80000000;
+    public const long WS_VISIBLE = 0x10000000;
+    public const long WS_CLIPCHILDREN = 0x02000000;
+    public const long WS_CLIPSIBLINGS = 0x04000000;
+    public const uint SWP_NOZORDER = 0x0004;
+    public const uint GW_CHILD = 5;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateWindowEx(int exStyle, string className, string windowName, int style,
+        int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+
+    [DllImport("user32.dll")]
+    public static extern bool DestroyWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetFocus();
 }

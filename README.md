@@ -73,7 +73,7 @@ A opens the game's page: its screenshot fills the background, with the title, pr
 | Chat with them, right on their page | X | X |
 | Join their game (when Steam allows joining it), otherwise their profile in Steam | Y | Y |
 
-**Chat** is the Steam app's own chat window, placed inside the overlay under their name: X opens your chat with them in Steam and the overlay moves that window into the page (and puts it back, or closes it, when you leave). It is Steam's real chat, so everything works there, including **Invite to Game** in its menu.
+**Chat** is the Steam app's own chat window, placed inside the overlay under their name: X opens your chat with them in Steam and the overlay puts that window inside the page, on a frosted glass card under their name, as a child window with Steam's title bar cut off (it gets its own frame and place back, or closes, when you leave). It is Steam's real chat, so everything works there, including **Invite to Game** in its menu.
 
 | In the chat | Controller | Keyboard |
 |---|---|---|
@@ -83,7 +83,7 @@ A opens the game's page: its screenshot fills the background, with the title, pr
 | Scroll the conversation | LT / RT | Mouse wheel |
 | Close the chat | B | |
 
-The overlay only moves Steam's window and sends ordinary keyboard and mouse input to it, like Windows' touch keyboard does. Nothing is injected into Steam and nothing logs in to your account. If Steam doesn't open a chat window (it isn't running or isn't signed in), X opens the chat in the Steam app instead.
+The overlay only places Steam's window (ordinary Windows window management) and sends ordinary keyboard and mouse input to it, like Windows' touch keyboard does. Nothing is injected into Steam and nothing logs in to your account. If Steam doesn't open a chat window (it isn't running or isn't signed in), X opens the chat in the Steam app instead.
 
 The friends list comes from the Steam app on your PC. To see who is online, what they play, their level and your game list, add your own **Steam Web API key** in Settings › Steam (get one free at [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey); any domain name works, like `localhost`). It stays on your PC and is only sent to Steam.
 
