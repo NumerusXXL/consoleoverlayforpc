@@ -50,7 +50,7 @@ internal sealed class SteamFriendPage
     private static readonly Brush ChatFrameBrush = new SolidColorBrush(Color.FromRgb(0x17, 0x1D, 0x25));
     private readonly Grid _chatFrame = new();
     private readonly Border _chatPlaceholder = new() { CornerRadius = new CornerRadius(18), Background = ChatFrameBrush };
-    private readonly ChatHost _host = new() { CornerRadius = 18, Visibility = Visibility.Collapsed };
+    private Native.RECT _lastFrame;
     private readonly Border _chatCard = new() { CornerRadius = new CornerRadius(30), BorderThickness = new Thickness(1), Padding = new Thickness(14) };
     private readonly StackPanel _chatPills = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
     private readonly TextBlock _chatMessage = new() { FontSize = 20, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24) };
@@ -138,8 +138,8 @@ internal sealed class SteamFriendPage
         _chatMessage.Foreground = (Brush)resources.FindResource("SoftTextBrush");
         _chatPlaceholder.Child = _chatMessage;
         _chatFrame.Children.Add(_chatPlaceholder);
-        _chatFrame.Children.Add(_host);
-        _host.Resized += () => _chat?.Fit();
+        // Steam's window shows through a hole in the overlay over this frame; it follows the frame when the page moves.
+        _chatFrame.LayoutUpdated += (_, _) => PlaceChat();
         _draftBox.Background = (Brush)resources.FindResource("TileBrush");
         _draft.Foreground = (Brush)resources.FindResource("TextBrush");
         _draftBox.Child = _draft;
@@ -284,7 +284,6 @@ internal sealed class SteamFriendPage
         _chatMessage.Text = "Opening your chat with " + friend.Name + " in Steam…";
         _chatMessage.Visibility = Visibility.Visible;
         _chatPlaceholder.Visibility = Visibility.Visible; // until Steam's window sits there
-        _host.Visibility = Visibility.Collapsed;
         BuildChatPills();
         Keyboard.ClearFocus();
         FitChat();
@@ -318,15 +317,13 @@ internal sealed class SteamFriendPage
             return;
         }
         _chat = chat;
-        // Steam's window goes inside the frame as a child window, clipped to its rounded corners.
-        _host.Visibility = Visibility.Visible;
+        // Steam's window goes behind the overlay, lined up with the frame, and shows through a rounded hole over it.
         FitChat();
         await _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { });
-        if (_host.Container != IntPtr.Zero && _chatOpen)
+        if (_chatOpen && OverlayHandle() is { } overlay && overlay != IntPtr.Zero && FrameOnScreen() is { } frame)
         {
-            FocusOverlay();
-            chat.Attach(_host.Container);
-            _chatPlaceholder.Visibility = Visibility.Collapsed;
+            _lastFrame = frame.Rect;
+            chat.Attach(overlay, frame.Rect, frame.Radius);
         }
         else
         {
@@ -351,7 +348,7 @@ internal sealed class SteamFriendPage
             chat.Release();
             FocusOverlay();
         }
-        _host.Visibility = Visibility.Collapsed;
+        _lastFrame = default;
         _chatPanel.Visibility = Visibility.Collapsed;
         Compact(false);
         if (focus) Focus();
@@ -548,6 +545,39 @@ internal sealed class SteamFriendPage
             catch (InvalidOperationException) { } // not laid out yet
         }
         _chatFrame.Height = Math.Max(240, height);
+    }
+
+    private IntPtr? OverlayHandle() =>
+        Window.GetWindow(_root) is { } window ? new System.Windows.Interop.WindowInteropHelper(window).Handle : null;
+
+    /// <summary>
+    /// The chat frame on screen, in pixels, with its corner radius in pixels. PointToScreen goes through the overlay's
+    /// TV scaling and the screen's DPI, so these are the same pixels Windows places windows in.
+    /// </summary>
+    private (Native.RECT Rect, int Radius)? FrameOnScreen()
+    {
+        if (!_chatFrame.IsVisible || _chatFrame.ActualWidth <= 0 || PresentationSource.FromVisual(_chatFrame) is null) return null;
+        var a = _chatFrame.PointToScreen(new Point(0, 0));
+        var b = _chatFrame.PointToScreen(new Point(_chatFrame.ActualWidth, _chatFrame.ActualHeight));
+        double scale = (b.X - a.X) / _chatFrame.ActualWidth;
+        var rect = new Native.RECT
+        {
+            Left = (int)Math.Round(a.X),
+            Top = (int)Math.Round(a.Y),
+            Right = (int)Math.Round(b.X),
+            Bottom = (int)Math.Round(b.Y),
+        };
+        return (rect, (int)Math.Round(_chatPlaceholder.CornerRadius.TopLeft * scale));
+    }
+
+    /// <summary>The frame moved or changed size (header, keyboard, page sliding in): the window and the hole follow.</summary>
+    private void PlaceChat()
+    {
+        if (_chat is not { } chat || SteamChatWindow.Active != chat || FrameOnScreen() is not { } frame) return;
+        var r = frame.Rect;
+        if (r.Left == _lastFrame.Left && r.Top == _lastFrame.Top && r.Right == _lastFrame.Right && r.Bottom == _lastFrame.Bottom) return;
+        _lastFrame = r;
+        chat.Place(r, frame.Radius);
     }
 
     /// <summary>The chat's actions as pills on the right of the header.</summary>

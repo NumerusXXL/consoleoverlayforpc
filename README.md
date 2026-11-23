@@ -73,7 +73,7 @@ A opens the game's page: its screenshot fills the background, with the title, pr
 | Chat with them, right on their page | X | X |
 | Join their game (when Steam allows joining it), otherwise their profile in Steam | Y | Y |
 
-**Chat** is the Steam app's own chat window, placed inside the overlay under their name: X opens your chat with them in Steam and the overlay puts that window inside the page, on a frosted glass card under their name, as a child window with Steam's title bar cut off (it gets its own frame and place back, or closes, when you leave). It is Steam's real chat, so everything works there, including **Invite to Game** in its menu.
+**Chat** is the Steam app's own chat window, placed inside the overlay under their name: X opens your chat with them in Steam and the overlay lines that window up behind a frosted glass card under their name and opens a rounded hole in itself over the card's frame, so you see and click only the conversation; Steam's title bar, tabs and border stay hidden under the overlay (the window gets its frame and place back, or closes, when you leave). It is Steam's real chat, so everything works there, including **Invite to Game** in its menu.
 
 | In the chat | Controller | Keyboard |
 |---|---|---|

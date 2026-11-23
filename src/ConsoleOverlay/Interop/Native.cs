@@ -349,4 +349,18 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetFocus();
+
+    // ---- The hole in the overlay over the Steam chat ---------------------------------------
+
+    public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+    public const int RGN_DIFF = 4;
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    public static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetMessageExtraInfo();
 }
