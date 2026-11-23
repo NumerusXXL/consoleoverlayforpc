@@ -8,9 +8,12 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 using ConsoleOverlay.Input;
+using ConsoleOverlay.Interop;
 using ConsoleOverlay.Settings;
 
 namespace ConsoleOverlay.Overlay;
@@ -22,7 +25,8 @@ namespace ConsoleOverlay.Overlay;
 /// </summary>
 internal sealed class ShortcutsPage : IOverlayPage
 {
-    private const double TileWidth = 150;
+    private const double TileSize = 150, FocusedSize = 212, TileGap = 18;
+    private static readonly TimeSpan GrowTime = TimeSpan.FromMilliseconds(240);
     private static readonly TimeSpan ConfirmWindow = TimeSpan.FromSeconds(3);
     private static readonly Dictionary<string, ImageSource?> Icons = new(StringComparer.OrdinalIgnoreCase);
 
@@ -30,7 +34,19 @@ internal sealed class ShortcutsPage : IOverlayPage
 
     private readonly FrameworkElement _resources;
     private readonly Grid _root = new();
-    private readonly WrapPanel _tiles = new();
+    // Tiles view, laid out like All Tabs: one row of square tiles, the focused one bigger, its name big underneath.
+    private readonly Grid _tilesView = new();
+    private readonly ScrollViewer _strip = new()
+    {
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Focusable = false,
+        CanContentScroll = false,
+    };
+    private readonly StackPanel _tiles = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom };
+    private readonly TextBlock _title = new() { FontSize = 48, FontWeight = FontWeights.ExtraBold, TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly TextBlock _meta = new() { FontSize = 16, Margin = new Thickness(0, 10, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly StackPanel _actions = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0) };
     private readonly StackPanel _list = new();
     private ISettingsHost? _host;
     private bool _active;
@@ -41,6 +57,7 @@ internal sealed class ShortcutsPage : IOverlayPage
     private string? _message;
     private int _confirmIndex = -1;
     private DateTime _confirmUntil;
+    private DateTime _messageAt;
 
     /// <summary>Close the overlay (without going back to the game), then run this.</summary>
     public event Action<Action>? CloseThen;
@@ -52,7 +69,24 @@ internal sealed class ShortcutsPage : IOverlayPage
     public ShortcutsPage(FrameworkElement resources)
     {
         _resources = resources;
-        _root.Children.Add(_tiles);
+
+        _tilesView.RowDefinitions.Add(new RowDefinition { Height = new GridLength(FocusedSize + 52) });
+        _tilesView.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _tiles.Margin = new Thickness(12, 30, 12, 12); // room for the focus ring and halo
+        _strip.Margin = new Thickness(-12, 0, -12, 0);
+        _strip.Content = _tiles;
+        KeyboardNavigation.SetDirectionalNavigation(_tiles, KeyboardNavigationMode.Contained);
+        _tilesView.Children.Add(_strip);
+        _title.FontFamily = (FontFamily)resources.FindResource("DisplayFont");
+        _meta.Foreground = (Brush)resources.FindResource("SoftTextBrush");
+        var info = new StackPanel { Margin = new Thickness(0, 16, 0, 0), MaxWidth = 900, HorizontalAlignment = HorizontalAlignment.Left };
+        info.Children.Add(_title);
+        info.Children.Add(_meta);
+        info.Children.Add(_actions);
+        Grid.SetRow(info, 1);
+        _tilesView.Children.Add(info);
+
+        _root.Children.Add(_tilesView);
         _root.Children.Add(_list);
         _list.Visibility = Visibility.Collapsed;
         _list.MaxWidth = 620;
@@ -64,7 +98,7 @@ internal sealed class ShortcutsPage : IOverlayPage
 
     public string Hint => _view switch
     {
-        View.Tiles => "A open · X remove · B back to game · LB / RB other pages",
+        View.Tiles => "B back to game · LB / RB other pages",
         View.AppPicker => "Type to search · A add · LT / RT jump between letters · B back",
         View.Link => "Type, or X paste · A save · B back",
         _ => "A select · B back",
@@ -109,7 +143,7 @@ internal sealed class ShortcutsPage : IOverlayPage
                     Remove(index);
                     return true;
                 }
-                return false;
+                return command is NavCommand.Up or NavCommand.Down; // one row: nothing above or below
 
             case View.Link:
                 if (command == NavCommand.Secondary)
@@ -154,7 +188,7 @@ internal sealed class ShortcutsPage : IOverlayPage
     private void SetView(View view, bool focus)
     {
         _view = view;
-        _tiles.Visibility = view == View.Tiles ? Visibility.Visible : Visibility.Collapsed;
+        _tilesView.Visibility = view == View.Tiles ? Visibility.Visible : Visibility.Collapsed;
         _list.Visibility = view == View.Tiles ? Visibility.Collapsed : Visibility.Visible;
         _tiles.Children.Clear();
         _list.Children.Clear();
@@ -189,70 +223,122 @@ internal sealed class ShortcutsPage : IOverlayPage
 
     private void BuildTiles()
     {
-        _tiles.Children.Add(Tile("", null, "Add", "App, game or link", () => SetView(View.AddMenu, focus: true), tag: null));
+        _strip.ScrollToHorizontalOffset(0);
+        _messageAt = DateTime.UtcNow;
+        _tiles.Children.Add(Tile(null, "\uE710", null, "Add", "An app, a game or a link", () => SetView(View.AddMenu, focus: true), tag: null));
         var shortcuts = Shortcuts;
         for (int i = 0; i < shortcuts.Count; i++)
         {
             var shortcut = shortcuts[i];
-            _tiles.Children.Add(Tile(IsLink(shortcut.Target) ? "" : "", IconFor(shortcut.Target), shortcut.Name,
-                Describe(shortcut.Target), () => Launch(shortcut), tag: i));
+            bool link = IsLink(shortcut.Target);
+            _tiles.Children.Add(Tile(IconFor(shortcut.Target), link ? "\uE774" : "\uE737", link ? Describe(shortcut.Target) : null,
+                shortcut.Name, Describe(shortcut.Target), () => Launch(shortcut), tag: i));
         }
-        if (_message is not null)
-        {
-            _tiles.Children.Add(new TextBlock
-            {
-                Text = _message,
-                Style = (Style)_resources.FindResource("RowHint"),
-                Width = 600,
-                Margin = new Thickness(4, 0, 0, 0),
-            });
-        }
+        if (_tiles.Children.OfType<Button>().FirstOrDefault() is { } first)
+            ShowInfo(first);
     }
 
-    private Button Tile(string glyph, ImageSource? icon, string name, string subtitle, Action onClick, int? tag)
+    /// <summary>
+    /// A square tile like All Tabs: the app's big icon on a gradient of its own color. Links and the Add tile, which
+    /// have no icon, get a glyph on a color picked from their name.
+    /// </summary>
+    private Button Tile(ImageSource? icon, string glyph, string? colorKey, string name, string subtitle, Action onClick, int? tag)
     {
-        UIElement picture = icon is not null
-            ? new Image { Source = icon, Width = 40, Height = 40 }
-            : Ui.Icon(_resources, glyph, 30);
-        if (picture is FrameworkElement p)
-        {
-            p.HorizontalAlignment = HorizontalAlignment.Center;
-            p.VerticalAlignment = VerticalAlignment.Center;
-        }
-        var art = new Border
-        {
-            Height = 76,
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF)),
-            Child = picture,
-        };
+        FrameworkElement picture = icon is not null
+            ? new Image { Source = icon, Width = 64, Height = 64 }
+            : Ui.Icon(_resources, glyph, 44);
+        picture.HorizontalAlignment = HorizontalAlignment.Center;
+        picture.VerticalAlignment = VerticalAlignment.Center;
+        RenderOptions.SetBitmapScalingMode(picture, BitmapScalingMode.HighQuality);
+        if (picture is TextBlock text) text.Foreground = Brushes.White;
 
-        var content = new StackPanel { Width = TileWidth };
-        content.Children.Add(art);
-        content.Children.Add(new TextBlock
+        Brush background;
+        if (icon is not null)
         {
-            Text = name,
-            FontSize = 14,
-            Margin = new Thickness(0, 10, 0, 0),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-        content.Children.Add(new TextBlock
+            var (light, dark) = Ui.TileColors(icon);
+            background = new LinearGradientBrush(light, dark, new Point(0.2, 0), new Point(0.8, 1));
+        }
+        else if (colorKey is not null)
         {
-            Text = subtitle,
-            FontSize = 12,
-            Margin = new Thickness(0, 2, 0, 0),
-            Foreground = (Brush)_resources.FindResource("SubtleTextBrush"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
+            background = NameColor(colorKey);
+        }
+        else
+        {
+            background = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF)); // the Add tile: plain frosted
+        }
 
         var button = new Button
         {
-            Style = (Style)_resources.FindResource("TileButton"),
-            Content = content,
+            Style = (Style)_resources.FindResource("WindowTile"),
+            Content = new Border { CornerRadius = new CornerRadius(24), Background = background, Child = picture },
+            Width = TileSize,
+            Height = TileSize,
+            Margin = new Thickness(0, 0, TileGap, 0),
+            VerticalAlignment = VerticalAlignment.Bottom,
             Tag = tag,
+            DataContext = (name, subtitle), // read back by ShowInfo
         };
         button.Click += (_, _) => onClick();
+        button.MouseEnter += (_, _) =>
+        {
+            if (!button.IsKeyboardFocused) Keyboard.Focus(button);
+        };
+        button.GotKeyboardFocus += (_, _) =>
+        {
+            int index = _tiles.Children.IndexOf(button);
+            _strip.ScrollToHorizontalOffset(Math.Max(0, (index - 1) * (TileSize + TileGap)));
+            Grow(button, true);
+            ShowInfo(button);
+        };
+        button.LostKeyboardFocus += (_, _) => Grow(button, false);
         return button;
+    }
+
+    private static void Grow(Button button, bool focused)
+    {
+        var duration = new Duration(GrowTime);
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        double size = focused ? FocusedSize : TileSize;
+        button.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(size, duration) { EasingFunction = ease });
+        button.BeginAnimation(FrameworkElement.HeightProperty, new DoubleAnimation(size, duration) { EasingFunction = ease });
+    }
+
+    /// <summary>The focused tile's name big, what it is underneath, and what A and X do.</summary>
+    private void ShowInfo(Button tile)
+    {
+        var (name, subtitle) = tile.DataContext is ValueTuple<string, string> info ? info : ("", "");
+        bool confirming = tile.Tag is int index && index == _confirmIndex && DateTime.UtcNow <= _confirmUntil;
+        _title.Text = name;
+        // A note ("Removed Steam.") shows for a few seconds after the tiles are rebuilt, then the usual line.
+        bool note = _message is not null && DateTime.UtcNow - _messageAt < TimeSpan.FromSeconds(4);
+        _meta.Text = confirming ? "Press X again to remove" : note ? _message! : subtitle;
+        _actions.Children.Clear();
+        if (tile.Tag is int i)
+        {
+            _actions.Children.Add(Ui.ActionPill(_resources, "A", "Open", primary: true, () => tile.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
+            _actions.Children.Add(Ui.ActionPill(_resources, "X", confirming ? "Remove (press again)" : "Remove", primary: false, () => Remove(i)));
+        }
+        else
+        {
+            _actions.Children.Add(Ui.ActionPill(_resources, "A", "Add a shortcut", primary: true, () => SetView(View.AddMenu, focus: true)));
+        }
+    }
+
+    private static Brush NameColor(string name)
+    {
+        Color[][] pairs =
+        [
+            [Color.FromRgb(0xFF, 0x5A, 0x5A), Color.FromRgb(0x7A, 0x14, 0x24)],
+            [Color.FromRgb(0x74, 0x80, 0xFF), Color.FromRgb(0x2B, 0x2F, 0x98)],
+            [Color.FromRgb(0x3E, 0xE0, 0x8F), Color.FromRgb(0x10, 0x6A, 0x40)],
+            [Color.FromRgb(0x2F, 0x9B, 0xFF), Color.FromRgb(0x12, 0x2C, 0x6B)],
+            [Color.FromRgb(0xF6, 0xC4, 0x53), Color.FromRgb(0x9A, 0x63, 0x0E)],
+            [Color.FromRgb(0xC0, 0x7A, 0xFF), Color.FromRgb(0x4A, 0x18, 0x7A)],
+        ];
+        int hash = 0;
+        foreach (char c in name) hash = hash * 31 + char.ToLowerInvariant(c);
+        var pair = pairs[Math.Abs(hash % pairs.Length)];
+        return new LinearGradientBrush(pair[0], pair[1], new Point(0.2, 0), new Point(0.8, 1));
     }
 
     private void Launch(LaunchShortcut shortcut) => CloseThen?.Invoke(() =>
@@ -281,15 +367,14 @@ internal sealed class ShortcutsPage : IOverlayPage
         {
             _confirmIndex = index;
             _confirmUntil = DateTime.UtcNow + ConfirmWindow;
-            if (tile?.Content is StackPanel { Children.Count: 3 } panel && panel.Children[2] is TextBlock subtitle)
+            if (tile is not null)
             {
-                string original = subtitle.Text;
-                subtitle.Text = "Press X again to remove";
+                ShowInfo(tile);
                 var reset = new DispatcherTimer { Interval = ConfirmWindow };
                 reset.Tick += (_, _) =>
                 {
                     reset.Stop();
-                    subtitle.Text = original;
+                    if (Keyboard.FocusedElement == tile) ShowInfo(tile);
                 };
                 reset.Start();
             }
@@ -590,26 +675,40 @@ internal sealed class ShortcutsPage : IOverlayPage
         return File.Exists(target) || Directory.Exists(target) ? "App" : "Not found";
     }
 
+    /// <summary>The big, sharp icon of an app; for a .lnk, its target's icon (without the shortcut arrow).</summary>
     private static ImageSource? IconFor(string target)
     {
         if (IsLink(target) || !File.Exists(target)) return null;
         if (Icons.TryGetValue(target, out var cached)) return cached;
-        ImageSource? source = null;
+        var file = target.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && ShortcutTarget(target) is { } resolved ? resolved : target;
+        var source = ShellIcons.ForFile(file, 256) ?? ShellIcons.ForFile(target, 256);
+        Icons[target] = source;
+        return source;
+    }
+
+    /// <summary>The program a .lnk file points to, or null.</summary>
+    private static string? ShortcutTarget(string lnk)
+    {
         try
         {
-            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(target);
-            if (icon is not null)
+            var type = Type.GetTypeFromProgID("WScript.Shell");
+            if (type is null) return null;
+            dynamic shell = Activator.CreateInstance(type)!;
+            try
             {
-                var bitmap = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                bitmap.Freeze();
-                source = bitmap;
+                dynamic link = shell.CreateShortcut(lnk);
+                string path = link.TargetPath;
+                return File.Exists(path) ? path : null;
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(shell);
             }
         }
         catch (Exception ex)
         {
-            Log.Write($"No icon for {target}: {ex.Message}");
+            Log.Write($"Could not read the shortcut {lnk}: {ex.Message}");
+            return null;
         }
-        Icons[target] = source;
-        return source;
     }
 }

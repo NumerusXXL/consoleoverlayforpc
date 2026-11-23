@@ -13,7 +13,7 @@ namespace ConsoleOverlay.Overlay;
 
 /// <summary>
 /// The Sound page: a row of device cards at the top (speakers, headphones, microphones; the one in use is white),
-/// a big master volume slider, and every app's volume below in two columns.
+/// a big master volume slider, and every app's volume below it in one list.
 /// Up / down moves between them, left / right changes a volume (or picks a card), A uses a device or mutes,
 /// Y mutes, LT / RT jump between the devices and the volumes.
 /// While the page is shown it re-reads Windows audio once a second so changes made elsewhere show up.
@@ -39,19 +39,12 @@ internal sealed class SoundPage : IOverlayPage
     private readonly FrameworkElement _resources;
     private readonly AudioService _audio = new();
     private readonly DispatcherTimer _poll;
-    private readonly StackPanel _devices = new() { Orientation = Orientation.Horizontal };
-    private readonly ScrollViewer _deviceStrip = new()
-    {
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        Focusable = false,
-        CanContentScroll = false,
-    };
+    // The device cards wrap onto a second row when they don't all fit, so none is ever cut off at the edge.
+    private readonly WrapPanel _devices = new() { Orientation = Orientation.Horizontal };
+    private readonly Border _deviceArea = new() { Margin = new Thickness(0, 0, 0, 24) };
+    private int _deviceColumns = 1;
     private readonly StackPanel _mixer = new();
     private readonly List<Button> _appButtons = [];
-    // Made new on every rebuild: a panel can only sit in one grid, and the old grid may still hold the old ones.
-    private StackPanel _appsLeft = new();
-    private StackPanel _appsRight = new();
     private readonly Dictionary<string, VolumeRow> _volumeRows = [];
     private string _layoutSignature = "";
     private uint _gameProcessId;
@@ -66,13 +59,13 @@ internal sealed class SoundPage : IOverlayPage
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
         _poll.Tick += (_, _) => Refresh();
 
-        // Padding inside the strip so the focus ring around a card isn't cut off.
-        _devices.Margin = new Thickness(10);
-        _deviceStrip.Content = _devices;
-        _deviceStrip.Margin = new Thickness(-10, -10, -10, 14);
-        _deviceStrip.SizeChanged += (_, _) => FitDeviceCards();
+        _deviceArea.Child = _devices;
+        _deviceArea.SizeChanged += (_, e) =>
+        {
+            if (e.WidthChanged) FitDeviceCards();
+        };
         var page = new StackPanel();
-        page.Children.Add(_deviceStrip);
+        page.Children.Add(_deviceArea);
         page.Children.Add(_mixer);
         Content = page;
     }
@@ -128,8 +121,6 @@ internal sealed class SoundPage : IOverlayPage
         _audio.Release();
         _devices.Children.Clear();
         _mixer.Children.Clear();
-        _appsLeft.Children.Clear();
-        _appsRight.Children.Clear();
         _appButtons.Clear();
         _volumeRows.Clear();
         _layoutSignature = "";
@@ -165,9 +156,8 @@ internal sealed class SoundPage : IOverlayPage
     }
 
     /// <summary>
-    /// Up / down go devices → master → apps. The apps read like a list wrapped into two columns: down the left
-    /// column, then on at the top of the right one, so every app is reachable without left / right (which change
-    /// the volume).
+    /// Up / down go devices → master → apps, one app per row, so every volume is reachable with up / down while
+    /// left / right always change the volume.
     /// </summary>
     private bool MoveVertically(Button focused, bool down)
     {
@@ -175,7 +165,13 @@ internal sealed class SoundPage : IOverlayPage
         UIElement? target = null;
         if (IsInside(focused, _devices))
         {
-            if (down) target = master?.Button ?? _appButtons.FirstOrDefault();
+            // The cards may sit in two rows: move to the card above or below first.
+            var cards = _devices.Children.OfType<Button>().ToList();
+            int index = cards.IndexOf(focused);
+            int row = index / _deviceColumns, rows = (cards.Count + _deviceColumns - 1) / _deviceColumns;
+            if (down && row + 1 < rows) target = cards[Math.Min(index + _deviceColumns, cards.Count - 1)];
+            else if (!down && row > 0) target = cards[index - _deviceColumns];
+            else if (down) target = master?.Button ?? _appButtons.FirstOrDefault();
             else return true;
         }
         else if (master is not null && focused == master.Button)
@@ -255,20 +251,27 @@ internal sealed class SoundPage : IOverlayPage
     }
 
     /// <summary>
-    /// The device cards share the page's width, so none is cut off at the edge. With many devices they keep a
-    /// readable width and the row scrolls to the focused one.
+    /// The device cards share the page's width, so none is cut off at the edge. When they would get too narrow to
+    /// read, they go into two (or more) even rows instead.
     /// </summary>
     private void FitDeviceCards()
     {
-        const double Gap = 14, MinWidth = 250, MaxWidth = 420;
+        const double Gap = 18, MinWidth = 220, MaxWidth = 420;
         var cards = _devices.Children.OfType<Button>().ToList();
-        double available = _deviceStrip.ActualWidth - _devices.Margin.Left - _devices.Margin.Right;
+        // A little less than the full width, so rounding never pushes the last card onto a row of its own.
+        double available = _deviceArea.ActualWidth - 2;
         if (cards.Count == 0 || available <= 0) return;
-        double width = Math.Clamp((available - Gap * (cards.Count - 1)) / cards.Count, MinWidth, MaxWidth);
+        int fit = Math.Max(1, (int)((available + Gap) / (MinWidth + Gap)));
+        int rows = (cards.Count + fit - 1) / fit;
+        int columns = (cards.Count + rows - 1) / rows; // even rows: 5 cards are 3 + 2, not 4 + 1
+        _deviceColumns = columns;
+        double width = Math.Floor(Math.Min((available - Gap * (columns - 1)) / columns, MaxWidth));
         for (int i = 0; i < cards.Count; i++)
         {
-            cards[i].Width = Math.Floor(width);
-            cards[i].Margin = new Thickness(0, 0, i < cards.Count - 1 ? Gap : 0, 0);
+            bool lastInRow = i % columns == columns - 1 || i == cards.Count - 1;
+            bool lastRow = i / columns == rows - 1;
+            cards[i].Width = width;
+            cards[i].Margin = new Thickness(0, 0, lastInRow ? 0 : Gap, lastRow ? 0 : Gap);
         }
     }
 
@@ -386,8 +389,6 @@ internal sealed class SoundPage : IOverlayPage
     {
         _devices.Children.Clear();
         _mixer.Children.Clear();
-        _appsLeft.Children.Clear();
-        _appsRight.Children.Clear();
         _appButtons.Clear();
         _volumeRows.Clear();
         _deviceSubtitles.Clear();
@@ -407,27 +408,17 @@ internal sealed class SoundPage : IOverlayPage
         }
         AddMaster();
 
-        // Apps: a list wrapped into two columns (left column first), see MoveVertically.
-        _appsLeft = new StackPanel { Margin = new Thickness(0, 0, 12, 0) };
-        _appsRight = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
-        var columns = new Grid { Margin = new Thickness(0, 22, 0, 0) };
-        columns.ColumnDefinitions.Add(new ColumnDefinition());
-        columns.ColumnDefinitions.Add(new ColumnDefinition());
-        Grid.SetColumn(_appsRight, 1);
-        columns.Children.Add(_appsLeft);
-        columns.Children.Add(_appsRight);
-        _mixer.Children.Add(columns);
-
-        int leftCount = (_audio.Apps.Count + 1) / 2;
-        for (int i = 0; i < _audio.Apps.Count; i++)
+        // Apps: one per row, so up / down reaches every one and left / right always means volume.
+        var apps = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
+        _mixer.Children.Add(apps);
+        foreach (var app in _audio.Apps)
         {
-            var app = _audio.Apps[i];
             var button = AddAppRow("app:" + app.Key, app);
-            (i < leftCount ? _appsLeft : _appsRight).Children.Add(button);
+            apps.Children.Add(button);
             _appButtons.Add(button);
         }
         if (_audio.Apps.Count == 0)
-            _appsLeft.Children.Add(Note("Apps playing sound show up here"));
+            apps.Children.Add(Note("Apps playing sound show up here"));
     }
 
     private readonly Dictionary<string, (TextBlock Text, AudioDevice Device, bool IsInput)> _deviceSubtitles = [];
@@ -596,8 +587,9 @@ internal sealed class SoundPage : IOverlayPage
     private FrameworkElement AppBadge(AppAudio app)
     {
         var margin = new Thickness(0, 0, 16, 0);
-        if (app.ProcessId != 0 && Interop.ShellIcons.ExePath(app.ProcessId) is { } path
-            && Interop.ShellIcons.ForFile(path, 64) is { } icon)
+        bool system = app.Key == "system" || app.ProcessId == 0; // Windows' own sounds belong to no program
+        if (!system && Interop.ShellIcons.ExePath(app.ProcessId) is { } path
+            && Interop.ShellIcons.ForFile(path, 256) is { } icon)
         {
             var image = new Image { Source = icon, Width = 44, Height = 44, Margin = margin };
             RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
@@ -612,7 +604,7 @@ internal sealed class SoundPage : IOverlayPage
             Background = AppBrush(app.Name),
             Margin = margin,
         };
-        if (app.ProcessId == 0)
+        if (system)
         {
             var speaker = Ui.Icon(_resources, "\uE767", 20);
             speaker.Foreground = Brushes.White;
