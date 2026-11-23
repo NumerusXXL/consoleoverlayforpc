@@ -354,6 +354,7 @@ internal static class Native
 
     public static readonly IntPtr HWND_TOP = IntPtr.Zero;
     public const int RGN_DIFF = 4;
+    public const int RGN_OR = 2;
 
     [DllImport("gdi32.dll")]
     public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);

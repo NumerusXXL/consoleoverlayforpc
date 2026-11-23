@@ -51,10 +51,15 @@ internal sealed class SteamFriendPage
     private readonly Grid _chatFrame = new();
     private readonly Border _chatPlaceholder = new() { CornerRadius = new CornerRadius(18), Background = ChatFrameBrush };
     private Native.RECT _lastFrame;
+    private Native.RECT _lastCover;
     private readonly Border _chatCard = new() { CornerRadius = new CornerRadius(30), BorderThickness = new Thickness(1), Padding = new Thickness(14) };
     private readonly StackPanel _chatPills = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
     private readonly TextBlock _chatMessage = new() { FontSize = 20, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24) };
-    private readonly Border _draftBox = new() { CornerRadius = new CornerRadius(18), Padding = new Thickness(20, 10, 20, 11), Margin = new Thickness(0, 12, 0, 0), Visibility = Visibility.Collapsed };
+    private readonly Border _draftBox = new() { CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 8, 18, 9), Margin = new Thickness(0, 0, 0, 10) };
+    // The keyboard floats over the bottom of the chat (over Steam's own message box), like a console's keyboard; the
+    // chat keeps its size and its latest messages stay right above it.
+    private readonly Border _typingPanel = new() { CornerRadius = new CornerRadius(28), BorderThickness = new Thickness(1), Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 14), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Visibility = Visibility.Collapsed };
+    private DockPanel _header = null!;
     private readonly TextBlock _draft = new() { FontSize = 20, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly OnScreenKeyboard _keyboard;
     private readonly StringBuilder _typed = new();
@@ -112,7 +117,7 @@ internal sealed class SteamFriendPage
         text.Children.Add(_name);
         text.Children.Add(_status);
         text.Children.Add(_facts);
-        var header = new DockPanel();
+        var header = _header = new DockPanel();
         DockPanel.SetDock(_avatar, Dock.Left);
         header.Children.Add(_avatar);
         // While chatting, the chat's actions sit on the right of the header, like the other pages' pill rows.
@@ -132,7 +137,7 @@ internal sealed class SteamFriendPage
         _root.Children.Add(_note);
 
         // The chat sits on a frosted glass card like the other pages' panels: Steam's conversation in a rounded frame,
-        // with the line you type and the keyboard under it on the same card.
+        // and the keyboard floating over its bottom while you type.
         _chatCard.Background = (Brush)resources.FindResource("GlassBrush");
         _chatCard.BorderBrush = (Brush)resources.FindResource("GlassEdgeBrush");
         _chatMessage.Foreground = (Brush)resources.FindResource("SoftTextBrush");
@@ -144,18 +149,24 @@ internal sealed class SteamFriendPage
         _draft.Foreground = (Brush)resources.FindResource("TextBrush");
         _draftBox.Child = _draft;
         _keyboard = new OnScreenKeyboard(resources) { EnterLabel = "Send" };
-        _keyboard.View.Margin = new Thickness(0, 12, 0, 0);
-        _keyboard.View.Visibility = Visibility.Collapsed;
+        _keyboard.Compact = true;
+        if (_keyboard.View is Border keys) keys.Background = Brushes.Transparent; // it sits on the floating panel
         _keyboard.Typed += t => { _typed.Append(t); ShowDraft(); };
         _keyboard.Backspace += () => { if (_typed.Length > 0) _typed.Length--; ShowDraft(); };
         _keyboard.Enter += SendTyped;
         _keyboard.Closed += () => ShowKeyboard(false);
-        var card = new StackPanel();
-        card.Children.Add(_chatFrame);
-        card.Children.Add(_draftBox);
-        card.Children.Add(_keyboard.View);
-        _chatCard.Child = card;
-        _chatPanel.Children.Add(_chatCard);
+        _chatCard.Child = _chatFrame;
+        var typing = new StackPanel();
+        typing.Children.Add(_draftBox);
+        typing.Children.Add(_keyboard.View);
+        _typingPanel.Child = typing;
+        _typingPanel.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x14, 0x18, 0x20)); // solid enough to read over the chat
+        _typingPanel.BorderBrush = (Brush)resources.FindResource("GlassEdgeBrush");
+        _typingPanel.SizeChanged += (_, _) => PlaceChat();
+        var chatArea = new Grid();
+        chatArea.Children.Add(_chatCard);
+        chatArea.Children.Add(_typingPanel);
+        _chatPanel.Children.Add(chatArea);
         _root.Children.Add(_chatPanel);
         _root.Visibility = Visibility.Collapsed;
         _root.SizeChanged += (_, _) => FitChat();
@@ -339,8 +350,8 @@ internal sealed class SteamFriendPage
         _chatOpen = false;
         _chatFailed = false;
         _typing = false;
-        _keyboard.View.Visibility = Visibility.Collapsed;
-        _draftBox.Visibility = Visibility.Collapsed;
+        _typingPanel.Visibility = Visibility.Collapsed;
+        _header.Visibility = Visibility.Visible;
         var chat = _chat;
         _chat = null;
         if (chat is not null)
@@ -349,6 +360,7 @@ internal sealed class SteamFriendPage
             FocusOverlay();
         }
         _lastFrame = default;
+        _lastCover = default;
         _chatPanel.Visibility = Visibility.Collapsed;
         Compact(false);
         if (focus) Focus();
@@ -450,7 +462,9 @@ internal sealed class SteamFriendPage
     {
         if (_typing == show) return;
         _typing = show;
-        _keyboard.View.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        _typingPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        // While typing, their name steps aside so the chat moves up and more of it shows above the keyboard.
+        _header.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
         ShowDraft();
         FitChat();
         if (show)
@@ -469,8 +483,6 @@ internal sealed class SteamFriendPage
 
     private void ShowDraft()
     {
-        bool shown = _typing || _typed.Length > 0;
-        _draftBox.Visibility = shown && _chatOpen ? Visibility.Visible : Visibility.Collapsed;
         _draft.Text = _typed.Length > 0 ? _typed + "▏" : "Type a message…";
         _draft.Opacity = _typed.Length > 0 ? 1 : 0.55;
     }
@@ -480,7 +492,7 @@ internal sealed class SteamFriendPage
         if (_chat is not { } chat || _typed.Length == 0) return;
         string text = _typed.ToString();
         _typed.Clear();
-        ShowKeyboard(false); // gives the chat window focus again
+        ShowDraft();
         if (!chat.Focus())
         {
             _typed.Append(text);
@@ -491,6 +503,13 @@ internal sealed class SteamFriendPage
         // Steam keeps its message box focused in a chat window, so the text lands there.
         SyntheticInput.Text(text);
         SyntheticInput.Press(0x0D); // Enter
+        // The keyboard stays open for the next message, as on a console.
+        _root.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            if (!_typing) return;
+            FocusOverlay();
+            _keyboard.FocusFirst();
+        });
     }
 
     private void FocusOverlay()
@@ -536,9 +555,7 @@ internal sealed class SteamFriendPage
             try
             {
                 double top = _chatFrame.TransformToAncestor(content).Transform(new Point(0, 0)).Y;
-                double below = (_draftBox.IsVisible || _typing ? 60 : 0) + (_typing ? _keyboard.View.ActualHeight + 12 : 0);
-                if (_typing && _keyboard.View.ActualHeight == 0) below += 300; // first layout: about the keyboard's height
-                below += _chatCard.Padding.Bottom + 1; // the glass card's edge under the chat
+                double below = _chatCard.Padding.Bottom + 1; // the glass card's edge under the chat (the keyboard floats over it)
                 height = scroller.ViewportHeight - top - below - 24;
                 scroller.ScrollToTop();
             }
@@ -554,20 +571,25 @@ internal sealed class SteamFriendPage
     /// The chat frame on screen, in pixels, with its corner radius in pixels. PointToScreen goes through the overlay's
     /// TV scaling and the screen's DPI, so these are the same pixels Windows places windows in.
     /// </summary>
-    private (Native.RECT Rect, int Radius)? FrameOnScreen()
+    private (Native.RECT Rect, int Radius, double Scale)? FrameOnScreen()
     {
-        if (!_chatFrame.IsVisible || _chatFrame.ActualWidth <= 0 || PresentationSource.FromVisual(_chatFrame) is null) return null;
-        var a = _chatFrame.PointToScreen(new Point(0, 0));
-        var b = _chatFrame.PointToScreen(new Point(_chatFrame.ActualWidth, _chatFrame.ActualHeight));
-        double scale = (b.X - a.X) / _chatFrame.ActualWidth;
-        var rect = new Native.RECT
+        if (ScreenRect(_chatFrame) is not { } rect) return null;
+        double scale = rect.Width / _chatFrame.ActualWidth;
+        return (rect, (int)Math.Round(_chatPlaceholder.CornerRadius.TopLeft * scale), scale);
+    }
+
+    private static Native.RECT? ScreenRect(FrameworkElement element)
+    {
+        if (!element.IsVisible || element.ActualWidth <= 0 || PresentationSource.FromVisual(element) is null) return null;
+        var a = element.PointToScreen(new Point(0, 0));
+        var b = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
+        return new Native.RECT
         {
             Left = (int)Math.Round(a.X),
             Top = (int)Math.Round(a.Y),
             Right = (int)Math.Round(b.X),
             Bottom = (int)Math.Round(b.Y),
         };
-        return (rect, (int)Math.Round(_chatPlaceholder.CornerRadius.TopLeft * scale));
     }
 
     /// <summary>The frame moved or changed size (header, keyboard, page sliding in): the window and the hole follow.</summary>
@@ -575,9 +597,13 @@ internal sealed class SteamFriendPage
     {
         if (_chat is not { } chat || SteamChatWindow.Active != chat || FrameOnScreen() is not { } frame) return;
         var r = frame.Rect;
-        if (r.Left == _lastFrame.Left && r.Top == _lastFrame.Top && r.Right == _lastFrame.Right && r.Bottom == _lastFrame.Bottom) return;
+        var cover = _typing ? ScreenRect(_typingPanel) : null;
+        var c = cover ?? default;
+        if (r.Left == _lastFrame.Left && r.Top == _lastFrame.Top && r.Right == _lastFrame.Right && r.Bottom == _lastFrame.Bottom
+            && c.Left == _lastCover.Left && c.Top == _lastCover.Top && c.Right == _lastCover.Right && c.Bottom == _lastCover.Bottom) return;
         _lastFrame = r;
-        chat.Place(r, frame.Radius);
+        _lastCover = c;
+        chat.Place(r, frame.Radius, cover, cover is null ? 0 : (int)Math.Round(_typingPanel.CornerRadius.TopLeft * frame.Scale));
     }
 
     /// <summary>The chat's actions as pills on the right of the header.</summary>

@@ -29,6 +29,8 @@ internal sealed class SteamChatWindow
     private IntPtr _overlay;
     private Native.RECT _frame;
     private int _radius;
+    private Native.RECT? _cover;
+    private int _coverRadius;
     private bool _released;
     private readonly long _style;
     private readonly List<IntPtr> _hooks = [];
@@ -57,6 +59,9 @@ internal sealed class SteamChatWindow
 
     /// <summary>Steam draws a resize grip in its bottom-right corner; the window reaches this far past the frame so it's cut off.</summary>
     private int GripMargin => Scaled(14);
+
+    /// <summary>Steam's message box at the bottom of the chat window (with its padding), hidden under the overlay's keyboard.</summary>
+    private int MessageBox => Scaled(60);
 
     private int Scaled(int pixels) => (int)Math.Round(pixels * Math.Max(96, Native.GetDpiForWindow(Hwnd)) / 96.0);
 
@@ -181,17 +186,23 @@ internal sealed class SteamChatWindow
     /// <summary>
     /// Lines the window up with the frame: Steam's title strip starts above the frame's top edge and the window reaches a
     /// little past its right and bottom edges, so only the conversation is inside the hole. Then the hole follows.
+    /// With the overlay's keyboard open (<paramref name="cover"/>, floating over the bottom of the frame) the window
+    /// ends just under the keyboard's top edge instead, so Steam's own message box is hidden under the keyboard and the
+    /// latest messages sit right above it; the hole leaves the keyboard out.
     /// </summary>
-    public void Place(Native.RECT frame, int radius)
+    public void Place(Native.RECT frame, int radius, Native.RECT? cover = null, int coverRadius = 0)
     {
         if (!Alive) return;
         _frame = frame;
         _radius = radius;
+        _cover = cover;
+        _coverRadius = coverRadius;
         int strip = TitleStrip, grip = GripMargin;
+        int bottom = cover is { } k && k.Top > frame.Top && k.Top < frame.Bottom ? k.Top + MessageBox : frame.Bottom;
         _snapping = true;
         try
         {
-            Native.SetWindowPos(Hwnd, Native.HWND_TOP, frame.Left, frame.Top - strip, frame.Width + grip, frame.Height + strip + grip,
+            Native.SetWindowPos(Hwnd, Native.HWND_TOP, frame.Left, frame.Top - strip, frame.Width + grip, bottom - frame.Top + strip + grip,
                 Native.SWP_SHOWWINDOW | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER | Native.SWP_FRAMECHANGED);
             Native.GetWindowRect(Hwnd, out _expected);
         }
@@ -200,7 +211,7 @@ internal sealed class SteamChatWindow
             _snapping = false;
         }
         OpenHole();
-        Log.Write($"Steam chat: frame {frame.Left},{frame.Top} {frame.Width}x{frame.Height}, title strip {strip}, "
+        Log.Write($"Steam chat: frame {frame.Left},{frame.Top} {frame.Width}x{frame.Height}, title strip {strip}, keyboard top {(cover?.Top.ToString() ?? "-")}, "
             + $"window now {_expected.Left},{_expected.Top} {_expected.Width}x{_expected.Height}.");
     }
 
@@ -213,6 +224,14 @@ internal sealed class SteamChatWindow
         var hole = Native.CreateRoundRectRgn(x, y, x + _frame.Width + 1, y + _frame.Height + 1, _radius * 2, _radius * 2);
         Native.CombineRgn(region, region, hole, Native.RGN_DIFF);
         Native.DeleteObject(hole);
+        if (_cover is { } k)
+        {
+            // The keyboard is the overlay's own: it stays solid over the hole.
+            int kx = k.Left - o.Left, ky = k.Top - o.Top;
+            var keyboard = Native.CreateRoundRectRgn(kx, ky, kx + k.Width + 1, ky + k.Height + 1, _coverRadius * 2, _coverRadius * 2);
+            Native.CombineRgn(region, region, keyboard, Native.RGN_OR);
+            Native.DeleteObject(keyboard);
+        }
         if (Native.SetWindowRgn(_overlay, region, true) == 0) Native.DeleteObject(region); // Windows owns it on success
     }
 
@@ -282,7 +301,7 @@ internal sealed class SteamChatWindow
         }
         // After the event, not inside it, so a burst of moves ends with the window where it belongs.
         System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
-            System.Windows.Threading.DispatcherPriority.Input, () => { if (!_released) Place(_frame, _radius); });
+            System.Windows.Threading.DispatcherPriority.Input, () => { if (!_released) Place(_frame, _radius, _cover, _coverRadius); });
     }
 
     /// <summary>Gives it keyboard focus, so typing (and the overlay's keyboard) goes into the chat. It stays behind the overlay.</summary>
