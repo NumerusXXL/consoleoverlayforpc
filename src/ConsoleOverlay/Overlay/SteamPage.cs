@@ -20,11 +20,12 @@ namespace ConsoleOverlay.Overlay;
 /// The Steam page, in four views switched with LT / RT:
 /// Recent and Installed: your installed Steam games as covers, read from Steam's own files on disk. A plays the focused
 /// game (or goes back to it when it is the one running), X opens its page in Steam, Y goes to Friends.
-/// Store: the Steam Store's shelves and search (<see cref="SteamStoreView"/>); buying happens on Steam's own pages.
-/// Friends: your Steam friends, chat and joining their games (<see cref="SteamFriendsView"/>).
-/// A game's page (<see cref="SteamGamePage"/>) is drawn by the overlay and opens from the Store, a friend's games or
-/// X in the library. Everything is native; only buying, chat and invites hand off to the Steam app (in Big Picture,
-/// by default), because Valve offers no public API for them.
+/// Store: Valve's Steam Store web page in the overlay's lightweight browser, restyled for a controller
+/// (<see cref="SteamStoreView"/>); wishlist, cart and buying all happen there.
+/// Friends: your Steam friends, their pages, Steam's web chat and joining their games (<see cref="SteamFriendsView"/>).
+/// A game's page (<see cref="SteamGamePage"/>) is drawn by the overlay and opens from a friend's games or X in the
+/// library; for a game you don't have, A opens it in the Store. Invites hand off to the Steam app (in Big Picture, by
+/// default), because Valve offers no public way to invite from a web page.
 /// </summary>
 internal sealed class SteamPage : IOverlayPage
 {
@@ -109,9 +110,9 @@ internal sealed class SteamPage : IOverlayPage
         Grid.SetRow(_library, 1);
         _root.Children.Add(_library);
 
-        _store = new SteamStoreView(resources) { SteamId = CurrentSteamId, Ownership = Ownership };
-        _store.OpenGame += OpenGame;
+        _store = new SteamStoreView(resources);
         _store.OpenLink += OpenLink;
+        _store.BackToGame += () => BackToGame?.Invoke();
         _store.HintChanged += () => HintChanged?.Invoke();
         Grid.SetRow(_store.View, 1);
         _store.View.Visibility = Visibility.Collapsed;
@@ -131,6 +132,7 @@ internal sealed class SteamPage : IOverlayPage
         _game.OpenLink += OpenLink;
         _game.BackdropChanged += picture => BackdropChanged?.Invoke(picture);
         _game.Closed += CloseGame;
+        _game.OpenStore += OpenInStore;
         Grid.SetRow(_game.View, 0);
         Grid.SetRowSpan(_game.View, 2);
         _root.Children.Add(_game.View);
@@ -243,7 +245,7 @@ internal sealed class SteamPage : IOverlayPage
 
     public UIElement? FirstFocus() => _game.IsOpen ? null : _view switch
     {
-        View.Store => _store.FirstFocus(),
+        View.Store => null, // the Store page has the focus
         View.Friends => _friends.FirstFocus(),
         _ => _shown.Count > 0 ? _shown[0].Button : null,
     };
@@ -256,7 +258,6 @@ internal sealed class SteamPage : IOverlayPage
         if (_view == View.Store)
         {
             if (_store.Handle(command, focused)) return true;
-            if (command == NavCommand.Accept && _store.AcceptWithoutTiles()) return true;
         }
         else if (_view == View.Friends)
         {
@@ -298,7 +299,13 @@ internal sealed class SteamPage : IOverlayPage
         return true;
     }
 
-    public bool HandleRawKey(KeyEventArgs e) => !_game.IsOpen && _view == View.Store && _store.HandleRawKey(e);
+    /// <summary>Signs out of Steam in the overlay's browser (the Store and the chat share the sign-in).</summary>
+    public async Task<bool> SignOutOfBrowserAsync()
+    {
+        bool chat = await _friends.SignOutOfChatAsync();
+        bool store = await _store.SignOutAsync();
+        return chat && store;
+    }
 
     // ---- Views ------------------------------------------------------------------------------
 
@@ -316,6 +323,22 @@ internal sealed class SteamPage : IOverlayPage
         else if (!_loaded) ShowMessage("Loading your library…", null);
         else Rebuild(keepFocus: false);
         HintChanged?.Invoke();
+    }
+
+    /// <summary>A game you don't have, from its game page: its page in the Store tab, where it can be bought.</summary>
+    private void OpenInStore(int appId)
+    {
+        _game.Close();
+        _store.OpenApp(appId);
+        if (_view == View.Store)
+        {
+            CloseGame();
+            return;
+        }
+        if (_view == View.Friends) _friends.Deactivate();
+        _view = View.Store;
+        BuildTabs();
+        ShowView();
     }
 
     /// <summary>Opens a game's page over the current view; B comes back to it.</summary>
@@ -348,11 +371,7 @@ internal sealed class SteamPage : IOverlayPage
         _library.Visibility = _view is View.Recent or View.Installed ? Visibility.Visible : Visibility.Collapsed;
         _store.View.Visibility = _view == View.Store ? Visibility.Visible : Visibility.Collapsed;
         _friends.View.Visibility = _view == View.Friends ? Visibility.Visible : Visibility.Collapsed;
-        if (_view == View.Store)
-        {
-            _store.Activate();
-            _store.FocusCurrent();
-        }
+        if (_view == View.Store) _store.Activate();
         else if (_view == View.Friends)
         {
             _friends.Activate(_steamFolder); // back on the friends list, or the friend's page you came from

@@ -108,6 +108,9 @@ internal sealed class SteamFriendsView
     /// <summary>A friend's page is open (LT / RT don't switch views then).</summary>
     public bool InPage => _page.IsOpen;
 
+    /// <summary>Signs out of Steam in the chat's browser (Settings › Steam).</summary>
+    public System.Threading.Tasks.Task<bool> SignOutOfChatAsync() => _page.SignOutOfChatAsync();
+
     public string? Subtitle => _page.IsOpen ? "Friends" : _friends.Count == 0 ? "Friends"
         : HasKey ? $"Friends · {_friends.Count(f => f.IsOnline)} online" : $"Friends · {_friends.Count}";
 

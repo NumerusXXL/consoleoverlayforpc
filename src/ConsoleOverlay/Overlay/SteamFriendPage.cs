@@ -22,9 +22,10 @@ namespace ConsoleOverlay.Overlay;
 /// you have been friends, and the games they played lately as tiles (the game they're in fills the background).
 ///
 /// A on a game plays it if you have it installed, otherwise opens its game page. X opens your chat with them on this
-/// page: the Steam app's own chat window is placed in a frame under their name (<see cref="SteamChatWindow"/>), and the
-/// controller drives it with a pointer, the overlay's EN/RU keyboard and scrolling. Invite to Game is in that window's
-/// menu. Y joins their game when Steam allows it, or opens their profile in Steam.
+/// page: Steam's web chat in the overlay's own lightweight browser (<see cref="SteamBrowser"/>), restyled to the
+/// overlay's look and showing only your conversation, driven with the D-pad and the EN/RU keyboard. While chatting,
+/// X invites them to your game through the Steam app (there is no public way to invite from a web page). Y joins their
+/// game when Steam allows it, or opens their profile in Steam.
 /// </summary>
 internal sealed class SteamFriendPage
 {
@@ -45,32 +46,13 @@ internal sealed class SteamFriendPage
     private readonly TextBlock _note = new() { FontSize = 15, TextWrapping = TextWrapping.Wrap, MaxWidth = 880, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 14, 0, 0) };
     private readonly StackPanel _text;
 
-    // Chat: Steam's own chat window sits over _chatFrame; the overlay's keyboard and the line you type go under it.
+    // Chat: Steam's web chat on a frosted glass card under their name. The browser runs only while the chat is open.
     private readonly StackPanel _chatPanel = new() { Margin = new Thickness(0, 26, 0, 0), Visibility = Visibility.Collapsed };
-    private static readonly Brush ChatFrameBrush = new SolidColorBrush(Color.FromRgb(0x17, 0x1D, 0x25));
-    private readonly Grid _chatFrame = new();
-    private readonly Border _chatPlaceholder = new() { CornerRadius = new CornerRadius(18), Background = ChatFrameBrush };
-    private Native.RECT _lastFrame;
-    private Native.RECT _lastCover;
     private readonly Border _chatCard = new() { CornerRadius = new CornerRadius(30), BorderThickness = new Thickness(1), Padding = new Thickness(14) };
     private readonly StackPanel _chatPills = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
-    private readonly TextBlock _chatMessage = new() { FontSize = 20, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24) };
-    private readonly Border _draftBox = new() { CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 8, 18, 9), Margin = new Thickness(0, 0, 0, 10) };
-    // The keyboard floats over the bottom of the chat (over Steam's own message box), like a console's keyboard; the
-    // chat keeps its size and its latest messages stay right above it.
-    private readonly Border _typingPanel = new() { CornerRadius = new CornerRadius(28), BorderThickness = new Thickness(1), Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 14), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Visibility = Visibility.Collapsed };
     private DockPanel _header = null!;
-    private readonly TextBlock _draft = new() { FontSize = 20, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly OnScreenKeyboard _keyboard;
-    private readonly StringBuilder _typed = new();
-    private SteamChatWindow? _chat;
-    private CancellationTokenSource? _chatCancel;
+    private SteamBrowser? _browser;
     private bool _chatOpen;
-    private bool _chatFailed;
-    private bool _typing;
-    private NavCommand? _lastMove;
-    private long _lastMoveAt;
-    private int _moveRun;
 
     private SteamFriend? _friend;
     private List<RecentGame> _recent = [];
@@ -136,37 +118,10 @@ internal sealed class SteamFriendPage
         _root.Children.Add(_gameInfo);
         _root.Children.Add(_note);
 
-        // The chat sits on a frosted glass card like the other pages' panels: Steam's conversation in a rounded frame,
-        // and the keyboard floating over its bottom while you type.
+        // The chat sits on a frosted glass card like the other pages' panels.
         _chatCard.Background = (Brush)resources.FindResource("GlassBrush");
         _chatCard.BorderBrush = (Brush)resources.FindResource("GlassEdgeBrush");
-        _chatMessage.Foreground = (Brush)resources.FindResource("SoftTextBrush");
-        _chatPlaceholder.Child = _chatMessage;
-        _chatFrame.Children.Add(_chatPlaceholder);
-        // Steam's window shows through a hole in the overlay over this frame; it follows the frame when the page moves.
-        _chatFrame.LayoutUpdated += (_, _) => PlaceChat();
-        _draftBox.Background = (Brush)resources.FindResource("TileBrush");
-        _draft.Foreground = (Brush)resources.FindResource("TextBrush");
-        _draftBox.Child = _draft;
-        _keyboard = new OnScreenKeyboard(resources) { EnterLabel = "Send" };
-        _keyboard.Compact = true;
-        if (_keyboard.View is Border keys) keys.Background = Brushes.Transparent; // it sits on the floating panel
-        _keyboard.Typed += t => { _typed.Append(t); ShowDraft(); };
-        _keyboard.Backspace += () => { if (_typed.Length > 0) _typed.Length--; ShowDraft(); };
-        _keyboard.Enter += SendTyped;
-        _keyboard.Closed += () => ShowKeyboard(false);
-        _chatCard.Child = _chatFrame;
-        var typing = new StackPanel();
-        typing.Children.Add(_draftBox);
-        typing.Children.Add(_keyboard.View);
-        _typingPanel.Child = typing;
-        _typingPanel.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x14, 0x18, 0x20)); // solid enough to read over the chat
-        _typingPanel.BorderBrush = (Brush)resources.FindResource("GlassEdgeBrush");
-        _typingPanel.SizeChanged += (_, _) => PlaceChat();
-        var chatArea = new Grid();
-        chatArea.Children.Add(_chatCard);
-        chatArea.Children.Add(_typingPanel);
-        _chatPanel.Children.Add(chatArea);
+        _chatPanel.Children.Add(_chatCard);
         _root.Children.Add(_chatPanel);
         _root.Visibility = Visibility.Collapsed;
         _root.SizeChanged += (_, _) => FitChat();
@@ -179,11 +134,8 @@ internal sealed class SteamFriendPage
     /// <summary>Your chat with them is open on this page.</summary>
     public bool ChatOpen => _chatOpen;
 
-    public string Hint => _chatOpen
-        ? _typing ? _keyboard.Hint
-            : _chatFailed ? "X chat in Steam · B back"
-            : _chat is null ? "B back"
-            : "← → pointer · A click · X right-click · Y type · LT / RT scroll · B close chat · LB / RB other pages"
+    public string Hint => _chatOpen && _browser is { } browser
+        ? browser.Hint
         : _games.Count > 0
             ? "← → games · X chat · B back to friends · LB / RB other pages"
             : "X chat · B back to friends · LB / RB other pages";
@@ -244,11 +196,7 @@ internal sealed class SteamFriendPage
 
     public void Focus()
     {
-        if (_chatOpen)
-        {
-            if (_typing) _keyboard.FocusFirst();
-            else Keyboard.ClearFocus();
-        }
+        if (_chatOpen) Keyboard.ClearFocus(); // the chat page has the focus; the controller drives it from here
         else if (_games.Count > 0) _games.Focus(_focusedGame is null ? 0 : Math.Max(0, _recent.IndexOf(_focusedGame)));
         else Keyboard.ClearFocus();
     }
@@ -280,249 +228,69 @@ internal sealed class SteamFriendPage
 
     // ---- Chat -------------------------------------------------------------------------------
 
-    /// <summary>Opens your chat with them in the Steam app and places its window in the frame on this page.</summary>
+    /// <summary>Opens Steam's web chat on this page and your conversation with them in it.</summary>
     private void OpenChat()
     {
         if (_friend is not { } friend) return;
-        SteamChatWindow.BeginOpening(); // Steam may take focus at any moment from here on
-        Log.Write("Steam chat: opening the chat on a friend's page.");
+        if (_browser is null)
+        {
+            _browser = new SteamBrowser(_resources, SteamWebMode.Chat) { SecondaryLabel = "invite in Steam" };
+            _browser.Closed += () => CloseChat();
+            _browser.OpenLink += link => OpenLink?.Invoke(link, false);
+            _browser.HintChanged += () =>
+            {
+                // While typing, their name steps aside so more of the conversation shows above the keys.
+                _header.Visibility = _browser.KeyboardOpen ? Visibility.Collapsed : Visibility.Visible;
+                _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FitChat);
+                HintChanged?.Invoke();
+            };
+            _chatCard.Child = _browser.View;
+        }
+        Log.Write("Steam chat: opening the web chat on a friend's page.");
         _chatOpen = true;
-        _chatFailed = false;
-        _typed.Clear();
-        ShowDraft();
         Compact(true);
         _chatPanel.Visibility = Visibility.Visible;
-        _chatMessage.Text = "Opening your chat with " + friend.Name + " in Steam…";
-        _chatMessage.Visibility = Visibility.Visible;
-        _chatPlaceholder.Visibility = Visibility.Visible; // until Steam's window sits there
         BuildChatPills();
         Keyboard.ClearFocus();
         FitChat();
-        HintChanged?.Invoke();
-        _ = AttachChatAsync(friend);
-    }
-
-    private async Task AttachChatAsync(SteamFriend friend)
-    {
-        _chatCancel?.Cancel();
-        var cancel = _chatCancel = new CancellationTokenSource();
-        SteamChatWindow? chat = null;
-        try { chat = await SteamChatWindow.OpenAsync(friend.SteamId, friend.Name, cancel.Token); }
-        catch (OperationCanceledException) { return; }
-        if (cancel.IsCancellationRequested || !_chatOpen || _friend?.SteamId != friend.SteamId)
-        {
-            chat?.Release();
-            SteamChatWindow.EndOpening();
-            return;
-        }
-        if (chat is null)
-        {
-            FocusOverlay(); // Steam may have taken focus while it tried
-            _chatFailed = true;
-            _chatMessage.Text = SteamChatWindow.BigPictureOpen()
-                ? "Steam is in Big Picture mode, which opens chats inside itself. Close Big Picture and press B, then X "
-                    + "to try again, or press X to chat in Big Picture."
-                : "Steam didn't open a chat window. Is the Steam app running and signed in? "
-                    + "Press X to open the chat in Steam instead.";
-            HintChanged?.Invoke();
-            return;
-        }
-        _chat = chat;
-        // Steam's window goes behind the overlay, lined up with the frame, and shows through a rounded hole over it.
-        FitChat();
-        await _root.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { });
-        if (_chatOpen && OverlayHandle() is { } overlay && overlay != IntPtr.Zero && FrameOnScreen() is { } frame)
-        {
-            _lastFrame = frame.Rect;
-            chat.Attach(overlay, frame.Rect, frame.Radius);
-        }
-        else
-        {
-            SteamChatWindow.EndOpening();
-            Log.Write("Steam chat: the frame for the chat window wasn't ready.");
-        }
+        _browser.Open(SteamFriends.WebChat, friend.Name);
         HintChanged?.Invoke();
     }
 
+    /// <summary>Closes the chat and shuts its browser down, so it uses no memory.</summary>
     private void CloseChat(bool focus = true)
     {
-        _chatCancel?.Cancel();
+        if (!_chatOpen) return;
         _chatOpen = false;
-        _chatFailed = false;
-        _typing = false;
-        _typingPanel.Visibility = Visibility.Collapsed;
+        _browser?.Close();
         _header.Visibility = Visibility.Visible;
-        var chat = _chat;
-        _chat = null;
-        if (chat is not null)
-        {
-            chat.Release();
-            FocusOverlay();
-        }
-        _lastFrame = default;
-        _lastCover = default;
         _chatPanel.Visibility = Visibility.Collapsed;
         Compact(false);
         if (focus) Focus();
         HintChanged?.Invoke();
     }
 
+    /// <summary>Signs out of Steam in the overlay's browser (Settings › Steam).</summary>
+    public Task<bool> SignOutOfChatAsync()
+    {
+        if (_chatOpen) CloseChat(focus: false);
+        return SteamBrowser.SignOutAsync(_browser);
+    }
+
     private bool HandleChat(NavCommand command, IInputElement? focused, SteamFriend friend)
     {
-        if (_chat is { Alive: false })
-        {
-            // Closed in Steam (or Steam restarted): back to their page.
-            CloseChat();
-            return true;
-        }
-        if (_typing)
-        {
-            if (!_keyboard.Contains(focused))
-            {
-                FocusOverlay();
-                _keyboard.FocusFirst();
-                if (command is NavCommand.Up or NavCommand.Down or NavCommand.Left or NavCommand.Right or NavCommand.Accept)
-                    return true;
-            }
-            if (_keyboard.Handle(command)) return true; // X delete, Y space, LT shift, RT send, B close
-            // D-pad and A move between and press keys the overlay's usual way; LB / RB change pages.
-            return command is not (NavCommand.Up or NavCommand.Down or NavCommand.Left or NavCommand.Right
-                or NavCommand.Accept or NavCommand.PreviousTab or NavCommand.NextTab);
-        }
-
+        if (_browser is not { } browser) return false;
+        if (browser.Handle(command, focused)) return true;
         switch (command)
         {
-            case NavCommand.Back:
-                CloseChat();
-                return true;
-            case NavCommand.Secondary when _chat is null:
-                if (_chatFailed) OpenLink?.Invoke(SteamFriends.ClientChatLink(friend.SteamId), true);
+            case NavCommand.Secondary:
+                // Inviting to a game has no public web API: the Steam app's chat with them has Invite to Game.
+                OpenLink?.Invoke(SteamFriends.ClientChatLink(friend.SteamId), true);
                 return true;
             case NavCommand.PreviousTab or NavCommand.NextTab:
-                return false; // other pages; Pause gives the window back
-        }
-        if (_chat is not { } chat) return true;
-        switch (command)
-        {
-            case NavCommand.Up or NavCommand.Down or NavCommand.Left or NavCommand.Right:
-                MovePointer(command, chat);
-                return true;
-            case NavCommand.Accept:
-                chat.Focus();
-                SyntheticInput.Click();
-                return true;
-            case NavCommand.Secondary:
-                chat.Focus();
-                SyntheticInput.Click(right: true);
-                return true;
-            case NavCommand.ColumnLeft or NavCommand.ColumnRight:
-                PointerInside(chat);
-                chat.Focus();
-                SyntheticInput.Wheel(command == NavCommand.ColumnLeft ? 3 : -3);
-                return true;
-            case NavCommand.Mute:
-                ShowKeyboard(true);
-                return true;
+                return false; // other pages; Pause closes the chat
         }
         return true;
-    }
-
-    /// <summary>The D-pad moves the mouse pointer over the chat, faster the longer you hold it.</summary>
-    private void MovePointer(NavCommand direction, SteamChatWindow chat)
-    {
-        long now = Environment.TickCount64;
-        _moveRun = _lastMove == direction && now - _lastMoveAt < 250 ? _moveRun + 1 : 0;
-        _lastMove = direction;
-        _lastMoveAt = now;
-        var bounds = chat.Bounds;
-        double scale = Math.Max(1, bounds.Height / 700.0);
-        int step = (int)(Math.Min(18 + _moveRun * 14, 110) * scale);
-        var at = PointerInside(chat);
-        int x = at.X + direction switch { NavCommand.Left => -step, NavCommand.Right => step, _ => 0 };
-        int y = at.Y + direction switch { NavCommand.Up => -step, NavCommand.Down => step, _ => 0 };
-        Native.SetCursorPos(Math.Clamp(x, bounds.Left + 2, bounds.Right - 3), Math.Clamp(y, bounds.Top + 2, bounds.Bottom - 3));
-        chat.Focus();
-    }
-
-    /// <summary>Where the pointer is; first moved to the middle of the chat if it is somewhere else.</summary>
-    private static Native.POINT PointerInside(SteamChatWindow chat)
-    {
-        var b = chat.Bounds;
-        if (Native.GetCursorPos(out var p) && p.X >= b.Left && p.X < b.Right && p.Y >= b.Top && p.Y < b.Bottom) return p;
-        var middle = chat.Middle;
-        Native.SetCursorPos(middle.X, middle.Y);
-        return middle;
-    }
-
-    /// <summary>
-    /// The overlay's keyboard opens under the chat window: you type the message here, RT sends it into Steam's message
-    /// box (as typing would) and presses Enter.
-    /// </summary>
-    private void ShowKeyboard(bool show)
-    {
-        if (_typing == show) return;
-        _typing = show;
-        _typingPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        // While typing, their name steps aside so the chat moves up and more of it shows above the keyboard.
-        _header.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
-        ShowDraft();
-        FitChat();
-        if (show)
-        {
-            FocusOverlay();
-            _keyboard.FocusFirst();
-        }
-        else
-        {
-            Keyboard.ClearFocus();
-            _chat?.Focus();
-        }
-        BuildChatPills();
-        HintChanged?.Invoke();
-    }
-
-    private void ShowDraft()
-    {
-        _draft.Text = _typed.Length > 0 ? _typed + "▏" : "Type a message…";
-        _draft.Opacity = _typed.Length > 0 ? 1 : 0.55;
-    }
-
-    private void SendTyped()
-    {
-        if (_chat is not { } chat || _typed.Length == 0) return;
-        string text = _typed.ToString();
-        _typed.Clear();
-        ShowDraft();
-        if (!chat.Focus())
-        {
-            _typed.Append(text);
-            ShowDraft();
-            Log.Write("Steam chat: could not give the chat window focus to send the message.");
-            return;
-        }
-        // Steam keeps its message box focused in a chat window, so the text lands there.
-        SyntheticInput.Text(text);
-        SyntheticInput.Press(0x0D); // Enter
-        // The keyboard stays open for the next message, as on a console.
-        _root.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
-        {
-            if (!_typing) return;
-            FocusOverlay();
-            _keyboard.FocusFirst();
-        });
-    }
-
-    private void FocusOverlay()
-    {
-        if (Window.GetWindow(_root) is not { } window) return;
-        var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
-        if (Native.GetForegroundWindow() == hwnd) return;
-        uint ourThread = Native.GetCurrentThreadId();
-        uint theirThread = Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out _);
-        bool attach = theirThread != 0 && theirThread != ourThread;
-        if (attach) Native.AttachThreadInput(ourThread, theirThread, true);
-        try { Native.SetForegroundWindow(hwnd); }
-        finally { if (attach) Native.AttachThreadInput(ourThread, theirThread, false); }
     }
 
     /// <summary>While you chat, their name and picture shrink to a header so the conversation gets the room.</summary>
@@ -542,10 +310,10 @@ internal sealed class SteamFriendPage
         _note.Visibility = !chat && _note.Text.Length > 0 && _games.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>The chat frame fills the space left under the header (and above the keyboard, while it's open).</summary>
+    /// <summary>The chat fills the space left under the header, down to the bottom of the page.</summary>
     private void FitChat()
     {
-        if (!_chatOpen) return;
+        if (!_chatOpen || _browser is null) return;
         DependencyObject? node = _root;
         while (node is not null && node is not ScrollViewer)
             node = VisualTreeHelper.GetParent(node);
@@ -554,69 +322,21 @@ internal sealed class SteamFriendPage
         {
             try
             {
-                double top = _chatFrame.TransformToAncestor(content).Transform(new Point(0, 0)).Y;
-                double below = _chatCard.Padding.Bottom + 1; // the glass card's edge under the chat (the keyboard floats over it)
-                height = scroller.ViewportHeight - top - below - 24;
+                double top = _chatPanel.TransformToAncestor(content).Transform(new Point(0, 0)).Y + _chatPanel.Margin.Top;
+                height = scroller.ViewportHeight - top - _chatCard.Padding.Top - _chatCard.Padding.Bottom - 26;
                 scroller.ScrollToTop();
             }
             catch (InvalidOperationException) { } // not laid out yet
         }
-        _chatFrame.Height = Math.Max(240, height);
-    }
-
-    private IntPtr? OverlayHandle() =>
-        Window.GetWindow(_root) is { } window ? new System.Windows.Interop.WindowInteropHelper(window).Handle : null;
-
-    /// <summary>
-    /// The chat frame on screen, in pixels, with its corner radius in pixels. PointToScreen goes through the overlay's
-    /// TV scaling and the screen's DPI, so these are the same pixels Windows places windows in.
-    /// </summary>
-    private (Native.RECT Rect, int Radius, double Scale)? FrameOnScreen()
-    {
-        if (ScreenRect(_chatFrame) is not { } rect) return null;
-        double scale = rect.Width / _chatFrame.ActualWidth;
-        return (rect, (int)Math.Round(_chatPlaceholder.CornerRadius.TopLeft * scale), scale);
-    }
-
-    private static Native.RECT? ScreenRect(FrameworkElement element)
-    {
-        if (!element.IsVisible || element.ActualWidth <= 0 || PresentationSource.FromVisual(element) is null) return null;
-        var a = element.PointToScreen(new Point(0, 0));
-        var b = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
-        return new Native.RECT
-        {
-            Left = (int)Math.Round(a.X),
-            Top = (int)Math.Round(a.Y),
-            Right = (int)Math.Round(b.X),
-            Bottom = (int)Math.Round(b.Y),
-        };
-    }
-
-    /// <summary>The frame moved or changed size (header, keyboard, page sliding in): the window and the hole follow.</summary>
-    private void PlaceChat()
-    {
-        if (_chat is not { } chat || SteamChatWindow.Active != chat || FrameOnScreen() is not { } frame) return;
-        var r = frame.Rect;
-        var cover = _typing ? ScreenRect(_typingPanel) : null;
-        var c = cover ?? default;
-        if (r.Left == _lastFrame.Left && r.Top == _lastFrame.Top && r.Right == _lastFrame.Right && r.Bottom == _lastFrame.Bottom
-            && c.Left == _lastCover.Left && c.Top == _lastCover.Top && c.Right == _lastCover.Right && c.Bottom == _lastCover.Bottom) return;
-        _lastFrame = r;
-        _lastCover = c;
-        chat.Place(r, frame.Radius, cover, cover is null ? 0 : (int)Math.Round(_typingPanel.CornerRadius.TopLeft * frame.Scale));
+        _browser.SetHeight(height);
     }
 
     /// <summary>The chat's actions as pills on the right of the header.</summary>
     private void BuildChatPills()
     {
         _chatPills.Children.Clear();
-        if (_typing)
-        {
-            _chatPills.Children.Add(Ui.ActionPill(_resources, "RT", "Send", primary: true, SendTyped));
-            _chatPills.Children.Add(Ui.ActionPill(_resources, "B", "Close keyboard", primary: false, () => ShowKeyboard(false)));
-            return;
-        }
-        _chatPills.Children.Add(Ui.ActionPill(_resources, "Y", "Type a message", primary: true, () => ShowKeyboard(true)));
+        _chatPills.Children.Add(Ui.ActionPill(_resources, "X", "Invite in Steam", primary: false,
+            () => { if (_friend is { } f) OpenLink?.Invoke(SteamFriends.ClientChatLink(f.SteamId), true); }));
         _chatPills.Children.Add(Ui.ActionPill(_resources, "B", "Close chat", primary: false, () => CloseChat()));
     }
 

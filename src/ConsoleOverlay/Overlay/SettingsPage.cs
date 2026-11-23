@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -88,6 +89,9 @@ internal sealed class SettingsPage : IOverlayPage
     private AppSettings Settings => _host?.Settings ?? new AppSettings();
 
     public void SetHost(ISettingsHost host) => _host = host;
+
+    /// <summary>Signs out of Steam in the overlay's browser (the Store tab and the chat).</summary>
+    public Func<Task<bool>>? SignOutOfSteam { get; set; }
 
     /// <summary>Settings changed (from this page, the tray or the file): show the new values.</summary>
     public void UpdateSettings()
@@ -709,11 +713,16 @@ internal sealed class SettingsPage : IOverlayPage
         Row("steam-key-page", "Get a Web API key", "Opens steamcommunity.com/dev/apikey in your browser. Any domain name works, like localhost.",
             () => "", () => OpenUrl(Steam.SteamFriends.ApiKeyPage));
 
-        Header("Buying and chat", first: false);
-        Note("Chat on a friend's page is the Steam app's own chat window, placed inside the overlay. Buying opens in the "
-            + "Steam app. Steam has no way for other apps to buy games or send messages, so Console Overlay never logs in "
-            + "to your account; it only places Steam's window and types what you type.");
-        Toggle("steam-bigpicture", "Open buying in Big Picture", "Steam's controller-friendly mode, so buying works with the controller too",
+        Header("Store and chat", first: false);
+        Note("The Store tab and chat on a friend's page are Steam's own web pages (the Store and Steam's web chat), shown "
+            + "in a small built-in browser and restyled for the controller. You sign in once on Steam's own sign-in page; "
+            + "Console Overlay never sees your password. The browser only runs while the Store or a chat is on screen.");
+        Row("steam-signout", "Sign out of Steam in the overlay", "Deletes the sign-in the Store and chat keep on this PC", null, async () =>
+        {
+            bool done = SignOutOfSteam is { } signOut && await signOut();
+            ShowMessage(done ? "Signed out of Steam in the overlay." : "Couldn't sign out yet. Close the Store and chat, then try again.", error: !done);
+        });
+        Toggle("steam-bigpicture", "Open Steam links in Big Picture", "Invites, profiles and \"open in Steam\" use Steam's controller-friendly mode",
             () => Settings.SteamBigPicture, on => Settings.SteamBigPicture = on);
     }
 

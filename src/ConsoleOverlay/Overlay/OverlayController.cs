@@ -43,10 +43,7 @@ public sealed class OverlayController
             {
                 var foreground = Native.GetForegroundWindow();
                 // A pop-up of our own (the store's browser opens one for a drop-down list) keeps it open.
-                // So does Steam's chat window while it is placed on a friend's page.
-                bool ours = foreground == _window.Handle || Native.GetAncestor(foreground, Native.GA_ROOTOWNER) == _window.Handle
-                    || (SteamChatWindow.Active is { } chat && chat.Owns(foreground))
-                    || SteamChatWindow.Opening; // Steam brings the new chat window to the front before it is placed
+                bool ours = foreground == _window.Handle || Native.GetAncestor(foreground, Native.GA_ROOTOWNER) == _window.Handle;
                 if (IsOpen && !_window.KeepOpen && !ours)
                 {
                     Log.Write("Overlay lost focus to another window; closing.");
@@ -141,7 +138,6 @@ public sealed class OverlayController
 
         IsOpen = false;
         Log.Write($"Closing (restore focus to game: {restorePrevious}).");
-        SteamChatWindow.ReleaseActive(); // Steam's chat window goes back before the overlay fades out
         _controller.NavigationEnabled = false;
 
         var previous = _previousForeground;

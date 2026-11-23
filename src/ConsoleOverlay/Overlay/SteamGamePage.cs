@@ -67,6 +67,9 @@ internal sealed class SteamGamePage
     /// <summary>B: back to where it was opened from.</summary>
     public event Action? Closed;
 
+    /// <summary>A on a game you don't have: its page in the overlay's Store (buying happens there).</summary>
+    public event Action<int>? OpenStore;
+
     public SteamGamePage(FrameworkElement resources)
     {
         _resources = resources;
@@ -248,7 +251,7 @@ internal sealed class SteamGamePage
         _facts.Text = d is null ? "Loading…" : string.Join("  ·  ", facts);
 
         _actions.Children.Clear();
-        string primary = owned ? (installed ? "Play" : "Install") : d?.IsFree == true ? "Get it in Steam" : "Buy in Steam";
+        string primary = owned ? (installed ? "Play" : "Install") : d?.IsFree == true ? "Get it in the Store" : "Buy in the Store";
         _actions.Children.Add(Ui.ActionPill(_resources, "A", primary, primary: true, () => Primary(item)));
         _actions.Children.Add(Ui.ActionPill(_resources, "X", owned ? "Achievements and more in Steam" : "Reviews, DLC and wishlist in Steam",
             primary: false, () => More(item)));
@@ -308,7 +311,7 @@ internal sealed class SteamGamePage
         var (owned, installed) = Ownership(item.AppId);
         if (installed) OpenLink?.Invoke(SteamLibrary.RunLink(item.AppId), false);
         else if (owned) OpenLink?.Invoke($"steam://install/{item.AppId}", false);
-        else OpenLink?.Invoke(SteamStore.ClientStoreLink(item.AppId), true);
+        else OpenStore?.Invoke(item.AppId);
     }
 
     /// <summary>X: the game in your Steam library (achievements, news) if it's yours, else its full store page.</summary>

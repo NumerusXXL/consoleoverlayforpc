@@ -56,6 +56,9 @@ internal static class SteamFriends
     public const string ApiKeyPage = "https://steamcommunity.com/dev/apikey";
 
     /// <summary>Opens Steam's chat window with this friend. It has "Invite to Game" while you are playing.</summary>
+    /// <summary>Steam's web chat (the same chat as in the Steam app), opened in the overlay's browser.</summary>
+    public const string WebChat = "https://steamcommunity.com/chat/";
+
     public static string ClientChatLink(string steamId) => $"steam://friends/message/{steamId}";
     /// <summary>Their profile, in the Steam app.</summary>
     public static string ProfileLink(string steamId) => $"steam://url/SteamIDPage/{steamId}";

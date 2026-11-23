@@ -2,7 +2,7 @@
 
 A lightweight, controller-friendly overlay for Windows, in the spirit of the Xbox Game Bar but built around a gamepad first.
 
-Status: v1.1 in progress. Window switcher, Steam library, store and friends, shortcuts, media, sound, Discord voice controls, capture and performance stats, all reachable from a controller.
+Status: v1.1 in progress. Window switcher, Steam library, store, friends and chat, shortcuts, media, sound, Discord voice controls, capture and performance stats, all reachable from a controller.
 
 ## Roadmap
 
@@ -55,14 +55,22 @@ On the **Steam** page, LT / RT (or Tab) switches between four views: **Recent**,
 | Open the game's page (in the overlay) | X | X |
 | Go to Friends | Y | Y |
 
-**Store** is drawn by the overlay like a console store: Specials, Top sellers, New releases, Coming soon and your **Wishlist** (when your profile's game details are public) as big tiles with prices and discounts, and games you own marked **In library** / **Installed**. ↑ / ↓ changes shelf, Y searches (on-screen keyboard with English and Russian letters, or just type).
+**Store** is Valve's own Steam Store web page, shown in a small built-in browser and restyled by the overlay for a TV and a controller: the overlay's font, white pill buttons, rounded game pictures, frosted panels, and no footer or side clutter. Because it is the real Store, everything works there: browsing, search, your wishlist, the cart and paying. You sign in once on Steam's own sign-in page (the QR code works with the Steam phone app); Console Overlay never sees your password.
 
-A opens the game's page: its screenshot fills the background, with the title, price, controller support, genres, multiplayer modes, description, Metacritic score and review count, and a row of screenshots (moving through them changes the background).
+| In the Store | Controller | Keyboard |
+|---|---|---|
+| Move between links and buttons (a white ring) / click | D-pad / A | Arrows, Tab, Enter, or the mouse |
+| Search, or type into the field the ring is on (on-screen keyboard, EN / RU) | Y | Just type |
+| Open the page in the Steam app | X | |
+| Back a page (back to the game from the Store's front page) | B | Esc |
+| Library and friends | LT / RT | |
+
+A game's page in the overlay (from X in the library or a friend's games) shows its screenshot as the background, with the title, price, controller support, genres, multiplayer modes, description, Metacritic score and review count, and a row of screenshots (moving through them changes the background).
 
 | On a game's page | Controller | Keyboard |
 |---|---|---|
-| Buy it (or Install / Play, if it's yours) | A | Enter |
-| Reviews, DLC and wishlist in Steam (achievements and news, if it's yours) | X | X |
+| Play / Install if it's yours, otherwise its page in the Store (to buy it) | A | Enter |
+| Achievements and news in Steam (reviews, DLC and wishlist, if it isn't yours) | X | X |
 | Back | B | Esc |
 
 **Friends** shows your Steam friends as big picture tiles: in a game first, then online, then offline. A opens a friend's page: their picture, status and game, Steam level, since when you're friends, and the games they played in the last two weeks (the game they're in fills the background). On a game there, A plays it if you have it installed, or opens its page.
@@ -73,21 +81,21 @@ A opens the game's page: its screenshot fills the background, with the title, pr
 | Chat with them, right on their page | X | X |
 | Join their game (when Steam allows joining it), otherwise their profile in Steam | Y | Y |
 
-**Chat** is the Steam app's own chat window, placed inside the overlay under their name: X opens your chat with them in Steam and the overlay lines that window up behind a frosted glass card under their name and opens a rounded hole in itself over the card's frame, so you see and click only the conversation; Steam's title bar, tabs and border stay hidden under the overlay (the window gets its frame and place back, or closes, when you leave). It is Steam's real chat, so everything works there, including **Invite to Game** in its menu.
+**Chat** is Steam's web chat (the same chat as in the Steam app), shown on the friend's page in the same built-in browser and restyled to look like the overlay: X opens it on a frosted glass card under their name, opens your conversation with them and hides Steam's own friends list (the overlay has its own). The first time, sign in on Steam's sign-in page there; the Store and the chat share the sign-in.
 
 | In the chat | Controller | Keyboard |
 |---|---|---|
-| Move the mouse pointer (faster while held) / click | D-pad / A | Mouse, or type directly |
-| Right-click (menus, like Invite to Game on their name) | X | |
-| Overlay keyboard, EN / RU (X deletes, Y space, LT Shift, RT sends) | Y | |
+| Move between messages, links and buttons / click | D-pad / A | Mouse |
+| Type a message (on-screen keyboard under the chat, EN / RU: X deletes, Y space, LT Shift, RT sends) | Y | Just type, Enter sends |
+| Invite them to your game (opens your chat with them in the Steam app, which has Invite to Game) | X | |
 | Scroll the conversation | LT / RT | Mouse wheel |
-| Close the chat | B | |
+| Close the chat | B | Esc |
 
-The overlay only places Steam's window (ordinary Windows window management) and sends ordinary keyboard and mouse input to it, like Windows' touch keyboard does. Nothing is injected into Steam and nothing logs in to your account. If Steam doesn't open a chat window (it isn't running or isn't signed in), X opens the chat in the Steam app instead.
+**Light on your PC.** The browser starts only when you open the Store or a chat and shuts down completely (all its processes) when you leave them or close the overlay, so it uses no memory while you play. While it is open it runs without a separate graphics process, with a single page process, and never downloads videos. Expect roughly 250 to 400 MB while a chat or the Store is on screen; log.txt shows the real figure ("the browser uses N processes, X MB in total"). It needs the Microsoft Edge WebView2 Runtime, which comes with Windows 11 and up-to-date Windows 10. Settings › Steam signs you out of Steam in the overlay.
 
 The friends list comes from the Steam app on your PC. To see who is online, what they play, their level and your game list, add your own **Steam Web API key** in Settings › Steam (get one free at [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey); any domain name works, like `localhost`). It stays on your PC and is only sent to Steam.
 
-**What has to happen in Steam itself.** Valve offers no public way for another app to buy games, send chat messages or send game invites. The only ways would be unofficial clients that log in as you, which can get an account restricted, so Console Overlay doesn't do that. Chat and invites happen in Steam's own chat window (placed on the friend's page, see above), and buying opens in the Steam app (in **Big Picture**, Steam's controller mode, by default; Settings › Steam turns that off), on the right game or friend. Everything else on the Store and Friends views is drawn by the overlay from Steam's public store data and official Web API, and never logs in to your account.
+**What has to happen in Steam itself.** The Store and chat are Steam's public web pages in an ordinary browser, so nothing touches the Steam app and nothing unofficial logs in to your account. Only game invites have no web version: X in a chat opens your chat with that friend in the Steam app (in **Big Picture**, Steam's controller mode, by default; Settings › Steam turns that off), which has Invite to Game. Everything on the library and Friends views is drawn by the overlay from Steam's files on your PC, Steam's public store data and the official Web API.
 
 On the **Shortcuts** page, your own apps, games and links sit as tiles. A launches one (the overlay closes first), X removes it (press twice). The **Add** tile adds an app or game from the Start menu (Steam, Epic and other launchers put their games there; type to search, or LT / RT to jump between letters), a link like `youtube.com` or `steam://`, or any file you browse to.
 
@@ -146,7 +154,7 @@ The **Settings** page in the overlay has a list of sections on the left. Moving 
 - **Games**: what to do with exclusive fullscreen games, and which games to skip. Open the overlay over a game and it offers to skip that one.
 - **Capture**: who makes clips and recordings (NVIDIA app or Xbox Game Bar), and where screenshots go.
 - **Performance**: stats in the corner on or off and which corner, and permission to count frames.
-- **Steam**: your Steam Web API key (for who is online on Friends; type it, or X to paste), a link to get one, and whether buying opens in Big Picture.
+- **Steam**: your Steam Web API key (for who is online on Friends; type it, or X to paste), a link to get one, signing out of Steam in the overlay's Store and chat, and whether Steam links (invites, profiles, "open in Steam") open in Big Picture.
 - **Discord**: enter your Discord app's Client ID and Client Secret (type them, or X to paste from the clipboard), open the setup guide, sign out.
 - **About**: version, check for updates, open the log, quit.
 
