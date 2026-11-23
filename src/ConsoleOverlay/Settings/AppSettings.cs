@@ -43,6 +43,11 @@ public sealed class AppSettings
     /// </summary>
     public string SteamWebApiKey { get; set; } = "";
 
+    /// <summary>
+    /// Open Steam's own screens (buying, chat, invites, profiles) in Big Picture, so they work with the controller.
+    /// </summary>
+    public bool SteamBigPicture { get; set; } = true;
+
     /// <summary>Color of the focus ring and the current page's pill: White, Blue, Green, Purple, Orange or Pink.</summary>
     public string AccentColor { get; set; } = "White";
 

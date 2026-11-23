@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -88,6 +89,9 @@ internal sealed class SettingsPage : IOverlayPage
     private AppSettings Settings => _host?.Settings ?? new AppSettings();
 
     public void SetHost(ISettingsHost host) => _host = host;
+
+    /// <summary>Signs out of Steam in the overlay's browser (the Store tab and the chat).</summary>
+    public Func<Task<bool>>? SignOutOfSteam { get; set; }
 
     /// <summary>Settings changed (from this page, the tray or the file): show the new values.</summary>
     public void UpdateSettings()
@@ -698,9 +702,6 @@ internal sealed class SettingsPage : IOverlayPage
 
     // ---- Steam ------------------------------------------------------------------------------
 
-    /// <summary>Signs out of Steam in the overlay's store and chat (set by the overlay).</summary>
-    public Func<System.Threading.Tasks.Task<bool>>? SignOutOfSteamBrowser { get; set; }
-
     private void BuildSteam()
     {
         Header("Friends", first: true);
@@ -713,15 +714,16 @@ internal sealed class SettingsPage : IOverlayPage
             () => "", () => OpenUrl(Steam.SteamFriends.ApiKeyPage));
 
         Header("Store and chat", first: false);
-        Note("The store, checkout and chat are Steam's own pages, opened inside the overlay. You sign in on Steam's sign-in "
-            + "page (the QR code works with the Steam phone app) and pay on Steam's checkout; Console Overlay never sees "
-            + "your password or payment details.");
-        Row("steam-signout", "Sign out of Steam in the overlay", "Forgets the sign-in of the overlay's store and chat. The Steam app stays signed in.", null, async () =>
+        Note("The Store tab and chat on a friend's page are Steam's own web pages (the Store and Steam's web chat), shown "
+            + "in a small built-in browser and restyled for the controller. You sign in once on Steam's own sign-in page; "
+            + "Console Overlay never sees your password. The browser only runs while the Store or a chat is on screen.");
+        Row("steam-signout", "Sign out of Steam in the overlay", "Deletes the sign-in the Store and chat keep on this PC", null, async () =>
         {
-            if (SignOutOfSteamBrowser is null) return;
-            bool done = await SignOutOfSteamBrowser();
-            ShowMessage(done ? "Signed out of Steam in the overlay." : "Couldn't sign out yet. Try again in a moment.", error: !done);
+            bool done = SignOutOfSteam is { } signOut && await signOut();
+            ShowMessage(done ? "Signed out of Steam in the overlay." : "Couldn't sign out yet. Close the Store and chat, then try again.", error: !done);
         });
+        Toggle("steam-bigpicture", "Open Steam links in Big Picture", "Invites, profiles and \"open in Steam\" use Steam's controller-friendly mode",
+            () => Settings.SteamBigPicture, on => Settings.SteamBigPicture = on);
     }
 
     private void EditField(string field)

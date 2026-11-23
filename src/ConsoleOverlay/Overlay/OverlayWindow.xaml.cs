@@ -181,6 +181,7 @@ public partial class OverlayWindow : Window
         _steam.BackToGame += () => CloseRequested?.Invoke();
         _steam.CloseThen += action => CloseThenRequested?.Invoke(action);
         _steam.OpenSettings += () => OpenSettingsSection("steam");
+        _steam.BackdropChanged += ShowWindowBackdrop;
         AddPage("Steam", "\uE8F1", _steam);
 
         _shortcuts = new ShortcutsPage(this);
@@ -210,7 +211,7 @@ public partial class OverlayWindow : Window
 
         _settings = new SettingsPage(this);
         _settings.CloseThen += action => CloseThenRequested?.Invoke(action);
-        _settings.SignOutOfSteamBrowser = () => _steam.SignOutOfBrowserAsync();
+        _settings.SignOutOfSteam = () => _steam.SignOutOfBrowserAsync();
         _settingsPage = AddPage("Settings", "\uE713", _settings);
     }
 

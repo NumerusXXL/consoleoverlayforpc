@@ -19,6 +19,10 @@ internal sealed record SteamFriend(
     string SteamId, string Name, string? AvatarUrl, FriendState State, string? Game, int GameId,
     string? ServerAddress, string? LobbyId, DateTime? LastOnline)
 {
+    public DateTime? FriendSince { get; init; }
+    public string? RealName { get; init; }
+    public string? Country { get; init; }
+
     public bool InGame => Game is not null;
     public bool IsOnline => State is not (FriendState.Offline or FriendState.Unknown);
 
@@ -32,13 +36,17 @@ internal sealed record SteamFriend(
         : null;
 }
 
+/// <summary>A game someone played lately, with how long (from the Steam Web API).</summary>
+internal sealed record RecentGame(int AppId, string Name, int MinutesTwoWeeks, int MinutesTotal);
+
 /// <summary>
 /// Your Steam friends, through Valve's official Steam Web API (your own Web API key, from
 /// steamcommunity.com/dev/apikey). Without a key, the names Steam keeps on this PC are shown instead, without who
 /// is online. Your account is found from Steam's files on this PC, so there is nothing else to sign in to.
 ///
-/// Valve has no public API for sending chat messages or game invites from another app. Chat happens on Valve's own
-/// web chat (inside the overlay) or in the Steam app; invites are sent from the Steam chat window, see the links below.
+/// Valve has no public API for reading or sending chat messages or game invites from another app (the only ways are
+/// Steam's own apps, or unofficial clients that log in as you, which can get an account restricted). So chat and
+/// invites open in the Steam app's chat window, see the links below.
 /// </summary>
 internal static class SteamFriends
 {
@@ -46,11 +54,14 @@ internal static class SteamFriends
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
 
     public const string ApiKeyPage = "https://steamcommunity.com/dev/apikey";
-    public const string WebChat = "https://steamcommunity.com/chat/";
 
     /// <summary>Opens Steam's chat window with this friend. It has "Invite to Game" while you are playing.</summary>
+    /// <summary>Steam's web chat (the same chat as in the Steam app), opened in the overlay's browser.</summary>
+    public const string WebChat = "https://steamcommunity.com/chat/";
+
     public static string ClientChatLink(string steamId) => $"steam://friends/message/{steamId}";
-    public static string ProfileLink(string steamId) => $"https://steamcommunity.com/profiles/{steamId}/";
+    /// <summary>Their profile, in the Steam app.</summary>
+    public static string ProfileLink(string steamId) => $"steam://url/SteamIDPage/{steamId}";
 
     /// <summary>The 64-bit id of the account signed in to Steam on this PC (or the last one), or null.</summary>
     public static string? CurrentSteamId(string steamFolder)
@@ -95,10 +106,11 @@ internal static class SteamFriends
         apiKey = apiKey.Trim();
         var list = await GetJsonAsync(
             $"https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={apiKey}&steamid={steamId}&relationship=friend", cancel);
-        var ids = (list?["friendslist"]?["friends"]?.AsArray() ?? [])
-            .Select(f => f?["steamid"]?.GetValue<string>())
-            .OfType<string>()
-            .ToList();
+        var since = new Dictionary<string, DateTime>();
+        foreach (var f in list?["friendslist"]?["friends"]?.AsArray() ?? [])
+            if (f?["steamid"]?.GetValue<string>() is { } fid)
+                since[fid] = Int64(f["friend_since"]) is long t && t > 0 ? DateTimeOffset.FromUnixTimeSeconds(t).LocalDateTime : default;
+        var ids = since.Keys.ToList();
 
         var friends = new List<SteamFriend>();
         foreach (var batch in ids.Chunk(100))
@@ -122,10 +134,44 @@ internal static class SteamFriends
                     gameId,
                     p["gameserverip"]?.GetValue<string>(),
                     p["lobbysteamid"]?.GetValue<string>(),
-                    lastOff > 0 ? DateTimeOffset.FromUnixTimeSeconds(lastOff).LocalDateTime : null));
+                    lastOff > 0 ? DateTimeOffset.FromUnixTimeSeconds(lastOff).LocalDateTime : null)
+                {
+                    FriendSince = since.TryGetValue(id, out var when) && when != default ? when : null,
+                    RealName = p["realname"]?.GetValue<string>(),
+                    Country = p["loccountrycode"]?.GetValue<string>(),
+                });
             }
         }
         return Sorted(friends);
+    }
+
+    /// <summary>Games someone played in the last two weeks (only if their game details are public).</summary>
+    public static async Task<List<RecentGame>> RecentGamesAsync(string apiKey, string steamId, CancellationToken cancel)
+    {
+        var json = await GetJsonAsync(
+            $"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?key={apiKey.Trim()}&steamid={steamId}&count=12", cancel);
+        return (json?["response"]?["games"]?.AsArray() ?? [])
+            .Where(g => g is not null && Int(g["appid"]) is not null)
+            .Select(g => new RecentGame(Int(g!["appid"])!.Value, g["name"]?.GetValue<string>() ?? "", Int(g["playtime_2weeks"]) ?? 0, Int(g["playtime_forever"]) ?? 0))
+            .ToList();
+    }
+
+    /// <summary>Their Steam level, or null when it's private.</summary>
+    public static async Task<int?> LevelAsync(string apiKey, string steamId, CancellationToken cancel)
+    {
+        var json = await GetJsonAsync($"https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/?key={apiKey.Trim()}&steamid={steamId}", cancel);
+        return Int(json?["response"]?["player_level"]);
+    }
+
+    /// <summary>Every game an account owns (yours, or a friend's whose game details are public).</summary>
+    public static async Task<HashSet<int>> OwnedGamesAsync(string apiKey, string steamId, CancellationToken cancel)
+    {
+        var json = await GetJsonAsync(
+            $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={apiKey.Trim()}&steamid={steamId}&include_played_free_games=1", cancel);
+        return (json?["response"]?["games"]?.AsArray() ?? [])
+            .Select(g => Int(g?["appid"]))
+            .OfType<int>()
+            .ToHashSet();
     }
 
     /// <summary>In a game first, then online, then away, then offline; by name inside each.</summary>

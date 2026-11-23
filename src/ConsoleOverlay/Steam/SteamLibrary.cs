@@ -85,6 +85,7 @@ internal static class SteamLibrary
     public static string RunLink(int appId) => $"steam://rungameid/{appId}";
     public static string GamePageLink(int appId) => $"steam://nav/games/details/{appId}";
     public const string FriendsLink = "steam://open/friends";
+    public const string BigPictureLink = "steam://open/bigpicture";
 
     private static IEnumerable<string> LibraryFolders(string steamFolder)
     {

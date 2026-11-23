@@ -146,13 +146,14 @@ internal static class WebControllerScript
   };
 
   const textTarget = () => {
-    if (text && document.contains(text)) return text;
+    if (text && document.contains(text) && visible(text)) return text;
     const active = document.activeElement;
     if (isText(active)) return text = active;
     if (isText(cur)) return text = cur;
-    const any = [...document.querySelectorAll('input,textarea,[contenteditable=""],[contenteditable=true]')].find(el => isText(el) && visible(el));
+    const fields = [...document.querySelectorAll('textarea,input,[contenteditable=""],[contenteditable=true]')].filter(el => isText(el) && visible(el));
+    const any = fields.find(el => el.tagName === 'TEXTAREA') || fields[0];
     if (any) { set(any); text = any; }
-    return text;
+    return text || null;
   };
 
   const setValue = (el, value) => {
@@ -214,24 +215,88 @@ internal static class WebControllerScript
     return 'home';
   };
 
-  // Opens a conversation in Steam's web chat: clicks the friend whose name is shown in the list.
+  // Opens a conversation in Steam's web chat: clicks the friend whose name is shown in the list. An exact match in the
+  // friends list wins; a name that starts the same (a nickname shown with the name) comes next.
   const openByName = name => {
     const want = (name || '').trim().toLowerCase();
     if (!want) return 'none';
+    let best = null, bestRank = 9;
     for (const el of document.querySelectorAll('div,span,a')) {
       if (el.children.length > 2) continue;
-      if ((el.textContent || '').trim().toLowerCase() !== want || !visible(el)) continue;
-      let target = el;
-      for (let p = el; p && p !== document.body; p = p.parentElement)
-        if (getComputedStyle(p).cursor === 'pointer' || p.tagName === 'A') { target = p; break; }
-      set(target);
-      target.click();
-      return 'opened';
+      const t = (el.textContent || '').trim().toLowerCase();
+      if (!t || t.length > want.length + 40) continue;
+      let rank = t === want ? 0 : (want.length >= 3 && t.startsWith(want)) ? 2 : 9;
+      if (rank === 9 || !visible(el)) continue;
+      if (!el.closest('[class*="friend" i]')) rank += 1;
+      if (rank < bestRank) { best = el; bestRank = rank; }
     }
-    return 'none';
+    if (!best) return 'none';
+    let target = best;
+    for (let p = best; p && p !== document.body; p = p.parentElement)
+      if (getComputedStyle(p).cursor === 'pointer' || p.tagName === 'A') { target = p; break; }
+    target.click();
+    return 'opened';
   };
 
-  window.__co = { move, activate, home, scroll, type, back, enter, openByName, isTextFocused: () => isText(document.activeElement) };
+  // The chat's message box (the biggest visible text box near the bottom of the page).
+  const messageBox = () => {
+    const boxes = [...document.querySelectorAll('textarea,[contenteditable=""],[contenteditable=true]')].filter(el => visible(el));
+    boxes.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+    return boxes[0] || null;
+  };
+
+  const focusMessage = () => {
+    const box = messageBox();
+    if (!box) return 'none';
+    set(box);
+    text = box;
+    return 'text';
+  };
+
+  // Y in the Store: the field the ring is on, else the Store's search box.
+  const focusSearch = () => {
+    if (isText(cur) && document.contains(cur) && visible(cur)) { text = cur; return 'text'; }
+    const box = document.querySelector('#store_nav_search_term, input[name="term"], #term, input[type="search"]');
+    if (!box || !visible(box)) { const any = textTarget(); return any ? 'text' : 'none'; }
+    set(box);
+    text = box;
+    return 'text';
+  };
+
+  // Only the conversation: the friends list column is hidden (the overlay has its own list). Found by its search
+  // box / class name and the column around it; put back if hiding it would also hide the conversation.
+  const chatMode = () => {
+    if (document.querySelector('[data-co-hidden]')) return 'kept';
+    const box = messageBox();
+    if (!box) return 'no-message-box';
+    const seed = document.querySelector('[class*="friendlist" i], [class*="FriendsList" i], [class*="friendsList" i]');
+    if (!seed) return 'no-list';
+    let column = seed;
+    for (let p = seed.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (p.contains(box)) break;
+      column = p;
+    }
+    const r = column.getBoundingClientRect();
+    if (r.width > innerWidth * 0.6 || column.contains(box)) return 'unsafe';
+    column.setAttribute('data-co-hidden', '1');
+    column.style.setProperty('display', 'none', 'important');
+    // Also the drag handle between the list and the chat, when it is a thin sibling.
+    const next = column.nextElementSibling;
+    if (next && !next.contains(box) && next.getBoundingClientRect().width < 16) next.style.setProperty('display', 'none', 'important');
+    if (!visible(box)) { column.style.removeProperty('display'); column.removeAttribute('data-co-hidden'); return 'restored'; }
+    dispatchEvent(new Event('resize'));
+    return 'list-hidden';
+  };
+
+  // Esc on a real keyboard goes to the overlay (B), since the page has the keyboard focus.
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && e.isTrusted && window.chrome && chrome.webview) {
+      e.preventDefault();
+      chrome.webview.postMessage('escape');
+    }
+  }, true);
+
+  window.__co = { move, activate, home, scroll, type, back, enter, openByName, focusMessage, focusSearch, chatMode, isTextFocused: () => isText(document.activeElement) };
 })();
 """;
 }

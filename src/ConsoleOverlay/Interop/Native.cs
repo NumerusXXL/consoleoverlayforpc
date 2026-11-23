@@ -200,4 +200,168 @@ internal static class Native
 
     [DllImport("kernel32.dll")]
     public static extern bool CloseHandle(IntPtr handle);
+
+    // ---- Placing another app's window (the Steam chat window on a friend's page) -------------
+
+    public const int SW_MINIMIZE = 6;
+    public const int SW_SHOWNORMAL = 1;
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOOWNERZORDER = 0x0200;
+    public const long WS_EX_TOPMOST = 0x00000008;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X, Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WINDOWPLACEMENT
+    {
+        public int length;
+        public int flags;
+        public int showCmd;
+        public POINT ptMinPosition;
+        public POINT ptMaxPosition;
+        public RECT rcNormalPosition;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT placement);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT placement);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out POINT point);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
+
+    // ---- Synthetic input (the overlay's on-screen keyboard and pointer, like Windows' touch keyboard) ----
+
+    public const uint INPUT_MOUSE = 0;
+    public const uint INPUT_KEYBOARD = 1;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+    public const uint KEYEVENTF_UNICODE = 0x0004;
+    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    public const uint MOUSEEVENTF_WHEEL = 0x0800;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT
+    {
+        public int dx, dy;
+        public int mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct INPUTUNION
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT
+    {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint SendInput(uint count, INPUT[] inputs, int size);
+
+    // ---- Locking the Steam chat window in place --------------------------------------------
+
+    public const int GWL_STYLE = -16;
+    public const long WS_CAPTION = 0x00C00000;
+    public const long WS_THICKFRAME = 0x00040000;
+    public const long WS_SYSMENU = 0x00080000;
+    public const long WS_MINIMIZEBOX = 0x00020000;
+    public const long WS_MAXIMIZEBOX = 0x00010000;
+    public const uint SWP_FRAMECHANGED = 0x0020;
+    public const uint WM_CANCELMODE = 0x001F;
+    public const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;
+    public const uint EVENT_SYSTEM_MINIMIZESTART = 0x0016;
+    public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+    public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
+    public delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+
+    /// <summary>Out-of-context: Windows tells us about the window's events; nothing runs inside the other app.</summary>
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module, WinEventProc proc, uint processId, uint threadId, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnhookWinEvent(IntPtr hook);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
+
+    [DllImport("user32.dll")]
+    public static extern int SetWindowRgn(IntPtr hWnd, IntPtr region, bool redraw);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    // ---- Embedding the Steam chat window as a child of the overlay -----------------------
+
+    public const long WS_CHILD = 0x40000000;
+    public const long WS_POPUP = 0x80000000;
+    public const long WS_VISIBLE = 0x10000000;
+    public const long WS_CLIPCHILDREN = 0x02000000;
+    public const long WS_CLIPSIBLINGS = 0x04000000;
+    public const uint SWP_NOZORDER = 0x0004;
+    public const uint GW_CHILD = 5;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateWindowEx(int exStyle, string className, string windowName, int style,
+        int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+
+    [DllImport("user32.dll")]
+    public static extern bool DestroyWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetFocus();
+
+    // ---- The hole in the overlay over the Steam chat ---------------------------------------
+
+    public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+    public const int RGN_DIFF = 4;
+    public const int RGN_OR = 2;
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    public static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetMessageExtraInfo();
 }

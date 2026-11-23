@@ -56,6 +56,20 @@ internal sealed class OnScreenKeyboard
 
     public FrameworkElement View { get; }
 
+    /// <summary>Lower keys, for a keyboard that floats over something you still want to see (the chat).</summary>
+    public bool Compact
+    {
+        get => _compact;
+        set
+        {
+            if (_compact == value) return;
+            _compact = value;
+            Build();
+        }
+    }
+
+    private bool _compact;
+
     /// <summary>What Enter says: "Search", "Send", "Done".</summary>
     public string EnterLabel
     {
@@ -161,7 +175,7 @@ internal sealed class OnScreenKeyboard
         {
             Style = (Style)_resources.FindResource("RowButton"),
             Width = width + (width > KeySize ? (width / KeySize - 1) * 6 : 0), // wide keys line up with the gaps
-            Height = KeySize,
+            Height = _compact ? 40 : KeySize,
             Margin = new Thickness(3),
             Padding = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Center,

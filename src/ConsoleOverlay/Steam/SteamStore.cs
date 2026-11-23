@@ -12,12 +12,28 @@ namespace ConsoleOverlay.Steam;
 /// <summary>A game on a store shelf. Prices are in the smallest unit (cents, kopecks); null when Steam gave none.</summary>
 internal sealed record StoreItem(int AppId, string Name, string ImageUrl, int? FinalPrice, int? OriginalPrice, int DiscountPercent, string? Currency)
 {
+    /// <summary>The price as Steam writes it, when it gave one ("9,69€").</summary>
+    public string? PriceText { get; init; }
+    public string? OriginalPriceText { get; init; }
+
     public static string HeaderUrl(int appId) => $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
 }
 
-/// <summary>What the store page says about one game, shown when it is focused.</summary>
+/// <summary>What the store page says about one game: shown when it is focused, and on its game page.</summary>
 internal sealed record StoreDetails(int AppId, string Name, string? Description, string? Price, string? OriginalPrice, int DiscountPercent,
-    bool IsFree, string? ReleaseDate, bool ComingSoon, IReadOnlyList<string> Genres, string? Developer);
+    bool IsFree, string? ReleaseDate, bool ComingSoon, IReadOnlyList<string> Genres, string? Developer)
+{
+    /// <summary>Screenshots: (small, full size).</summary>
+    public IReadOnlyList<(string Thumb, string Full)> Screenshots { get; init; } = [];
+    public string? Background { get; init; }
+    public string? Publisher { get; init; }
+    public int? Metacritic { get; init; }
+    public int? Reviews { get; init; }
+    public string? ControllerSupport { get; init; } // "full", "partial" or null
+    /// <summary>Single-player, Online co-op, Steam Achievements..., the ones worth showing.</summary>
+    public IReadOnlyList<string> Features { get; init; } = [];
+    public IReadOnlyList<string> Platforms { get; init; } = [];
+}
 
 /// <summary>
 /// Reads Steam's public store data (the same JSON the store web pages load): the front page shelves, search, and
@@ -39,11 +55,10 @@ internal static class SteamStore
         ("coming_soon", "Coming soon"),
     ];
 
-    public static string StoreLink(int appId) => $"https://store.steampowered.com/app/{appId}/";
-    public const string StoreHome = "https://store.steampowered.com/";
-    public const string CartLink = "https://store.steampowered.com/cart/";
-
-    /// <summary>The game's page in the Steam app (where your payment details are already saved).</summary>
+    /// <summary>
+    /// The game's page in the Steam app, where you buy it with the payment details Steam already has. There is no
+    /// way for another app to buy for you: Valve only sells through its own store.
+    /// </summary>
     public static string ClientStoreLink(int appId) => $"steam://store/{appId}";
 
     /// <summary>Front page shelves, read again after ten minutes.</summary>
@@ -121,13 +136,101 @@ internal static class SteamStore
             data["release_date"]?["date"]?.GetValue<string>(),
             data["release_date"]?["coming_soon"]?.GetValue<bool>() == true,
             (data["genres"]?.AsArray() ?? []).Select(g => g?["description"]?.GetValue<string>()).OfType<string>().Take(3).ToList(),
-            data["developers"]?.AsArray().FirstOrDefault()?.GetValue<string>());
+            data["developers"]?.AsArray().FirstOrDefault()?.GetValue<string>())
+        {
+            Screenshots = (data["screenshots"]?.AsArray() ?? [])
+                .Select(x => (x?["path_thumbnail"]?.GetValue<string>(), x?["path_full"]?.GetValue<string>()))
+                .Where(x => x.Item1 is not null && x.Item2 is not null)
+                .Select(x => (x.Item1!, x.Item2!))
+                .Take(12)
+                .ToList(),
+            Background = data["background_raw"]?.GetValue<string>() ?? data["background"]?.GetValue<string>(),
+            Publisher = data["publishers"]?.AsArray().FirstOrDefault()?.GetValue<string>(),
+            Metacritic = Int(data["metacritic"]?["score"]),
+            Reviews = Int(data["recommendations"]?["total"]),
+            ControllerSupport = data["controller_support"]?.GetValue<string>(),
+            Features = (data["categories"]?.AsArray() ?? [])
+                .Select(c => (Id: Int(c?["id"]) ?? 0, Name: c?["description"]?.GetValue<string>()))
+                .Where(c => c.Name is not null && ShownFeatures.Contains(c.Id))
+                .Select(c => c.Name!)
+                .Take(5)
+                .ToList(),
+            Platforms = new[] { ("windows", "Windows"), ("mac", "macOS"), ("linux", "Linux / Steam Deck") }
+                .Where(p => data["platforms"]?[p.Item1]?.GetValue<bool>() == true)
+                .Select(p => p.Item2)
+                .ToList(),
+        };
         lock (Details)
             Details[appId] = details;
         return details;
     }
 
+    // Single-player, Multi-player, Co-op, Online co-op, Shared/split screen, PvP, Online PvP, Cross-platform multiplayer.
+    private static readonly HashSet<int> ShownFeatures = [2, 1, 9, 38, 39, 24, 49, 36, 27];
+
+    /// <summary>
+    /// Your wishlist, in your own order. Read from Steam's public wishlist API: it works when your profile's game
+    /// details are public, and needs no key or sign-in.
+    /// </summary>
+    public static async Task<List<StoreItem>> WishlistAsync(string steamId, CancellationToken cancel)
+    {
+        var json = await GetJsonAsync($"https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid={steamId}", cancel);
+        var ids = (json?["response"]?["items"]?.AsArray() ?? [])
+            .Select(i => (AppId: Int(i?["appid"]), Priority: Int(i?["priority"]) ?? int.MaxValue))
+            .Where(i => i.AppId is not null)
+            .OrderBy(i => i.Priority == 0 ? int.MaxValue : i.Priority)
+            .Select(i => i.AppId!.Value)
+            .Take(60)
+            .ToList();
+        return await ItemsAsync(ids, cancel);
+    }
+
+    /// <summary>Names, art and prices for a list of games, in that order (Steam's public store item API).</summary>
+    public static async Task<List<StoreItem>> ItemsAsync(IReadOnlyList<int> appIds, CancellationToken cancel)
+    {
+        var found = new Dictionary<int, StoreItem>();
+        string cc = "US";
+        try { cc = RegionInfo.CurrentRegion.TwoLetterISORegionName; } catch { }
+        foreach (var batch in appIds.Chunk(40))
+        {
+            var input = new JsonObject
+            {
+                ["ids"] = new JsonArray(batch.Select(id => (JsonNode)new JsonObject { ["appid"] = id }).ToArray()),
+                ["context"] = new JsonObject { ["language"] = Language(), ["country_code"] = cc },
+                ["data_request"] = new JsonObject { ["include_assets"] = true, ["include_all_purchase_options"] = true },
+            };
+            var json = await GetJsonAsync("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json="
+                + Uri.EscapeDataString(input.ToJsonString()), cancel);
+            foreach (var item in json?["response"]?["store_items"]?.AsArray() ?? [])
+            {
+                if (item is null || Int(item["appid"]) is not { } appId) continue;
+                var name = item["name"]?.GetValue<string>();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var assets = item["assets"];
+                string image = StoreItem.HeaderUrl(appId);
+                if (assets?["asset_url_format"]?.GetValue<string>() is { } format
+                    && (assets["main_capsule"] ?? assets["header"])?.GetValue<string>() is { } file)
+                    image = "https://shared.akamai.steamstatic.com/store_item_assets/" + format.Replace("${FILENAME}", file);
+                var buy = item["best_purchase_option"];
+                int? final = Int(buy?["final_price_in_cents"]), original = Int(buy?["original_price_in_cents"]);
+                int discount = Int(buy?["discount_pct"]) ?? 0;
+                found[appId] = new StoreItem(appId, name, image, final, discount > 0 ? original : null, discount, null)
+                {
+                    PriceText = buy?["formatted_final_price"]?.GetValue<string>(),
+                    OriginalPriceText = discount > 0 ? buy?["formatted_original_price"]?.GetValue<string>() : null,
+                };
+            }
+        }
+        return appIds.Where(found.ContainsKey).Select(id => found[id]).ToList();
+    }
+
     /// <summary>A shelf price from cents, for when the details haven't loaded yet ("₽ 599", "€19.99").</summary>
+    public static string? FormatPrice(StoreItem item, bool original = false)
+    {
+        var text = original ? item.OriginalPriceText : item.PriceText;
+        return text ?? FormatPrice(original ? item.OriginalPrice : item.FinalPrice, item.Currency);
+    }
+
     public static string? FormatPrice(int? amount, string? currency)
     {
         if (amount is not { } value) return null;

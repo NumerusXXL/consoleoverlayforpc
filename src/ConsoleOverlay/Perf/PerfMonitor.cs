@@ -24,6 +24,8 @@ internal sealed class PerfMonitor
     private IntPtr _gameWindow;
     private int _gamePid;
     private string? _gameName;
+    private int _watchToken;
+    private bool _reading;
 
     public event Action<PerfSnapshot>? Updated;
 
@@ -45,16 +47,34 @@ internal sealed class PerfMonitor
     public void Watch(object watcher)
     {
         if (!_watchers.Add(watcher) || _watchers.Count > 1) return;
-        _stats ??= new SystemStats();
-        _frames ??= new FrameCounter();
-        _frames.Start();
-        _stats.Read(); // primes the CPU counters, so the first real reading is right
         _timer.Start();
+        // Windows' performance counters and the frame event session take seconds to set up the first time, so that
+        // happens off the UI thread; the page shows its empty state meanwhile.
+        int token = ++_watchToken;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var stats = _stats ?? new SystemStats();
+                var frames = _frames ?? new FrameCounter();
+                if (token != _watchToken) return;
+                frames.Start();
+                stats.Read(); // primes the CPU counters, so the first real reading is right
+                _frames = frames;
+                _stats = stats;
+                if (token != _watchToken) frames.Stop(); // nobody watches any more
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"Performance stats could not start: {ex.Message}");
+            }
+        });
     }
 
     public void Unwatch(object watcher)
     {
         if (!_watchers.Remove(watcher) || _watchers.Count > 0) return;
+        _watchToken++;
         _timer.Stop();
         _frames?.Stop();
         History.Clear();
@@ -70,16 +90,30 @@ internal sealed class PerfMonitor
     /// <summary>The overlay opened over this window: count its frames. Zero goes back to following the front window.</summary>
     public void SetGameWindow(IntPtr window) => _gameWindow = window;
 
+    /// <summary>Reads on a worker thread (counters can be slow), then hands the reading to the UI.</summary>
     private void Tick()
     {
-        if (_stats is null) return;
+        if (_stats is not { } stats || _reading) return;
+        _reading = true;
         UpdateGame();
-        var frames = _frames?.Read(_gamePid);
-        var snapshot = new PerfSnapshot(_stats.Read(), frames, _gameName);
-        Last = snapshot;
-        History.Enqueue(frames?.Fps ?? 0);
-        while (History.Count > 60) History.Dequeue();
-        Updated?.Invoke(snapshot);
+        int pid = _gamePid;
+        string? name = _gameName;
+        var counter = _frames;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            PerfSnapshot? snapshot = null;
+            try { snapshot = new PerfSnapshot(stats.Read(), counter?.Read(pid), name); }
+            catch (Exception ex) { Log.Write($"Performance stats: reading failed: {ex.Message}"); }
+            _timer.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            {
+                _reading = false;
+                if (snapshot is null || _watchers.Count == 0) return;
+                Last = snapshot;
+                History.Enqueue(snapshot.Frames?.Fps ?? 0);
+                while (History.Count > 60) History.Dequeue();
+                Updated?.Invoke(snapshot);
+            });
+        });
     }
 
     private void UpdateGame()
